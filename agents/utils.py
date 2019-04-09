@@ -115,50 +115,83 @@ def lstm(xs, dones, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
     return seq_to_batch(xs), tf.squeeze(s)
 
 
-def test_layers():
-    print(tf.__version__)
-    tf.reset_default_graph()
-    sess = tf.Session()
-    n_step = 5
-    fc_x = tf.placeholder(tf.float32, [None, 10])
-    lstm_x = tf.placeholder(tf.float32, [n_step, 2])
-    lstm_done = tf.placeholder(tf.float32, [n_step])
-    lstm_s = tf.placeholder(tf.float32, [20])
-    conv1_x = tf.placeholder(tf.float32, [None, 8, 1])
-    conv2_x = tf.placeholder(tf.float32, [None, 8, 8, 1])
-    fc_out = fc(fc_x, 'fc', 10)
-    lstm_out, lstm_ns = lstm(lstm_x, lstm_done, lstm_s, 'lstm')
-    conv1_out = conv(conv1_x, 'conv1', 10, 4, conv_dim=1)
-    conv2_out = conv(conv2_x, 'conv2', 10, 4, conv_dim=2)
-    sess.run(tf.global_variables_initializer())
-    inputs = {'fc': {fc_x:np.random.randn(n_step, 10)},
-              'lstm_done': {lstm_x:np.zeros((n_step, 2)),
-                            lstm_done:np.ones(n_step),
-                            lstm_s:np.random.randn(20)},
-              'lstm': {lstm_x:np.random.randn(n_step, 2),
-                       lstm_done:np.zeros(n_step),
-                       lstm_s:np.random.randn(20)},
-              'conv1': {conv1_x:np.random.randn(n_step, 8, 1)},
-              'conv2': {conv2_x:np.random.randn(n_step, 8, 8, 1)}}
-    outputs = {'fc': [fc_out], 'lstm_done': [lstm_out, lstm_ns],
-               'conv1': [conv1_out], 'conv2': [conv2_out],
-               'lstm': [lstm_out, lstm_ns]}
-    for scope in ['fc', 'lstm', 'conv1', 'conv2']:
-        print(scope)
-        wts = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope)
-        for wt in wts:
-            wt_val = wt.eval(sess)
-            print(wt_val.shape)
-            print(np.mean(wt_val), np.std(wt_val), np.min(wt_val), np.max(wt_val))
-    print('=====================================')
-    for x_name in inputs:
-        print(x_name)
-        out = sess.run(outputs[x_name], inputs[x_name])
-        if x_name.startswith('lstm'):
-            print(out[0])
-            print(out[1])
-        else:
-            print(out[0].shape)
+def lstm_comm(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
+              init_method=DEFAULT_METHOD):
+    n_agent = s.shape[0]
+    n_h = s.shape[1] // 2
+    n_s = xs.shape[-1]
+    n_a = ps.shape[-1]
+    xs = tf.transpose(xs, perm=[1,0,2]) # TxNxn_s
+    xs = batch_to_seq(xs)
+    ps = tf.transpose(ps, perm=[1,0,2]) # TxNxn_a
+    ps = batch_to_seq(ps)
+    # need dones to reset states
+    dones = batch_to_seq(dones) # Tx1
+    # create wts
+    n_in_msg = n_h + n_s + n_a
+    w_msg = []
+    b_msg = []
+    wx_hid = []
+    wh_hid = []
+    b_hid = []
+    for i in range(n_agent):
+        n_m = np.sum(masks[i])
+        n_in_hid = n_s + n_h*n_m
+        with tf.variable_scope(scope + ('_%d' % i)):
+            w_msg.append(tf.get_variable("w_msg", [n_in_msg, n_h],
+                                         initializer=init_method(init_scale, init_mode)))
+            b_msg.append(tf.get_variable("b_msg", [n_h],
+                                         initializer=tf.constant_initializer(0.0)))
+            wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
+                                          initializer=init_method(init_scale, init_mode)))
+            wh_hid.append(tf.get_variable("wh_hid", [n_h, n_h*4],
+                                          initializer=init_method(init_scale, init_mode)))
+            b_hid.append(tf.get_variable("b_hid", [n_h*4],
+                                         initializer=tf.constant_initializer(0.0)))
+    c, h = tf.split(axis=1, num_or_size_splits=2, value=s)
+    # loop over steps
+    for t, (x, p, done) in enumerate(zip(xs, ps, dones)):
+        # abuse 1 agent as 1 step
+        x = batch_to_seq(tf.squeeze(x, axis=0))
+        p = batch_to_seq(tf.squeeze(p, aixs=0))
+        out_h = []
+        out_c = []
+        out_m = []
+        # communication phase
+        for i, (xi, pi) in enumerate(zip(x, p)):
+            hi = tf.expand_dims(h[i], axis=0)
+            si = tf.concat([hi, xi, pi], aixs=1)
+            mi = tf.nn.relu(tf.matmul(si, w_msg[i]) + b_msg[i])
+            out_m.append(mi)
+        out_m = tf.transpose(tf.concat(out_m, axis=0)) # Nxn_h
+        # hidden phase
+        for i, xi in enumerate(x):
+            ci = tf.expand_dims(c[i], axis=0)
+            hi = tf.expand_dims(h[i], axis=0)
+            # reset states for a new episode
+            ci = ci * (1-done)
+            hi = hi * (1-done)
+            # receive neighbor messages
+            mi = tf.reshape(tf.boolean_mask(out_m, masks[i]), [1,-1])
+            si = tf.concat([xi, mi], axis=1)
+            zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
+            ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
+            ii = tf.nn.sigmoid(ii)
+            fi = tf.nn.sigmoid(fi)
+            oi = tf.nn.sigmoid(oi)
+            ui = tf.tanh(ui)
+            ci = fi*ci + ii*ui
+            hi = oi*tf.tanh(ci)
+            out_h.append(hi)
+            out_c.append(ci)
+        c = tf.concat(out_c, axis=0)
+        h = tf.concat(out_h, axis=0)
+        xs[t] = h
+    s = tf.concat(axis=1, values=[c, h])
+    xs = seq_to_batch(xs) # TxNxn_h
+    xs = tf.transpose(xs, perm=[1,0,2]) # NxTxn_h
+    return xs, s
+
 
 """
 buffers
@@ -198,6 +231,17 @@ class OnPolicyBuffer(TransBuffer):
         self.vs.append(v)
         self.dones.append(done)
 
+    def sample_transition(self, R):
+        self._add_R_Adv(R)
+        obs = np.array(self.obs, dtype=np.float32)
+        acts = np.array(self.acts, dtype=np.int32)
+        Rs = np.array(self.Rs, dtype=np.float32)
+        Advs = np.array(self.Advs, dtype=np.float32)
+        # use pre-step dones here
+        dones = np.array(self.dones[:-1], dtype=np.bool)
+        self.reset(self.dones[-1])
+        return obs, acts, dones, Rs, Advs
+
     def _add_R_Adv(self, R):
         Rs = []
         Advs = []
@@ -212,20 +256,51 @@ class OnPolicyBuffer(TransBuffer):
         self.Rs = Rs
         self.Advs = Advs
 
-    def sample_transition(self, R, discrete=True):
+
+class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
+    def __init__(self, gamma):
+        super().__init__(gamma)
+
+    def reset(self, done=False):
+        super().reset(done)
+        self.policies = []
+
+    def add_transition(self, ob, p, a, r, v, done):
+        # note policies are prior-decision whereas actions are post-decision
+        super().add_transition(ob, a, r, v, done)
+        self.policies.append(p)
+
+    def sample_transition(self, R):
         self._add_R_Adv(R)
-        obs = np.array(self.obs, dtype=np.float32)
-        if discrete:
-            acts = np.array(self.acts, dtype=np.int32)
-        else:
-            acts = np.array(self.acts, dtype=np.float32)
+        obs = np.transpose(np.array(self.obs, dtype=np.float32), (1, 0, 2))
+        policies = np.transpose(np.array(self.policies, dtype=np.float32), (1, 0, 2))
+        acts = np.transpose(np.array(self.acts, dtype=np.int32))
         Rs = np.array(self.Rs, dtype=np.float32)
         Advs = np.array(self.Advs, dtype=np.float32)
-        # use pre-step dones here
         dones = np.array(self.dones[:-1], dtype=np.bool)
         self.reset(self.dones[-1])
-        return obs, acts, dones, Rs, Advs
+        return obs, policies, acts, dones, Rs, Advs
 
+    def _add_R_Adv(self, R):
+        Rs = []
+        Advs = []
+        rs = np.array(self.rs)
+        vs = np.array(self.vs)
+        for i in range(rs.shape[1]):
+            cur_Rs = []
+            cur_Advs = []
+            cur_R = R[i]
+            for r, v, done in zip(rs[::-1,i], vs[::-1,i], self.dones[:0:-1]):
+                cur_R = r + self.gamma * cur_R * (1.-done)
+                cur_Adv = cur_R - v
+                cur_Rs.append(cur_R)
+                cur_Advs.append(cur_Adv)
+            cur_Rs.reverse()
+            cur_Advs.reverse()
+            Rs.append(cur_Rs)
+            Advs.append(cur_Advs)
+        self.Rs = np.array(Rs)
+        self.Advs = np.array(Advs)
 
 """
 util functions
@@ -245,6 +320,3 @@ class Scheduler:
         else:
             return self.val
 
-
-if __name__ == '__main__':
-    test_layers()

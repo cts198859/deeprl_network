@@ -9,70 +9,65 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
-from envs.env import Phase, TrafficSimulator
+import time
+from envs.env import PhaseMap, PhaseSet, TrafficSimulator
 from large_grid.data.build_file import gen_rou_file
 
 sns.set_color_codes()
 
 
-STATE_MEAN_MASKS = {'in_car': False, 'in_speed': True, 'out_car': False}
-STATE_NAMES = ['in_car', 'in_speed', 'out_car']
-PHASE_NUM = 2
+STATE_NAMES = ['wave', 'wait']
+PHASE_NUM = 5
 # map from ild order (alphabeta) to signal order (clockwise from north)
-STATE_PHASE_MAP = {'nt1': [2, 3, 1, 0], 'nt2': [2, 3, 1, 0],
-                   'nt3': [2, 3, 1, 0], 'nt4': [2, 3, 1, 0],
-                   'nt5': [2, 1, 0, 3], 'nt6': [3, 2, 0, 1],
-                   'nt7': [0, 2, 3, 1], 'nt8': [0, 2, 3, 1],
-                   'nt9': [1, 0, 2, 3], 'nt10': [1, 0, 2, 3],
-                   'nt11': [3, 1, 0, 2], 'nt12': [3, 1, 0, 2],
-                   'nt13': [3, 1, 0, 2], 'nt14': [3, 1, 0, 2],
-                   'nt15': [1, 2, 3, 0], 'nt16': [3, 2, 1, 0],
-                   'nt17': [2, 3, 1, 0], 'nt18': [2, 3, 1, 0],
-                   'nt19': [2, 3, 1, 0], 'nt20': [1, 2, 3, 0],
-                   'nt21': [0, 3, 2, 1], 'nt22': [0, 2, 3, 1],
-                   'nt23': [0, 2, 3, 1], 'nt24': [0, 2, 3, 1],
-                   'nt25': [1, 0, 2, 3]}
+# STATE_PHASE_MAP = {'nt1': [2, 3, 1, 0], 'nt2': [2, 3, 1, 0],
+#                    'nt3': [2, 3, 1, 0], 'nt4': [2, 3, 1, 0],
+#                    'nt5': [2, 1, 0, 3], 'nt6': [3, 2, 0, 1],
+#                    'nt7': [0, 2, 3, 1], 'nt8': [0, 2, 3, 1],
+#                    'nt9': [1, 0, 2, 3], 'nt10': [1, 0, 2, 3],
+#                    'nt11': [3, 1, 0, 2], 'nt12': [3, 1, 0, 2],
+#                    'nt13': [3, 1, 0, 2], 'nt14': [3, 1, 0, 2],
+#                    'nt15': [1, 2, 3, 0], 'nt16': [3, 2, 1, 0],
+#                    'nt17': [2, 3, 1, 0], 'nt18': [2, 3, 1, 0],
+#                    'nt19': [2, 3, 1, 0], 'nt20': [1, 2, 3, 0],
+#                    'nt21': [0, 3, 2, 1], 'nt22': [0, 2, 3, 1],
+#                    'nt23': [0, 2, 3, 1], 'nt24': [0, 2, 3, 1],
+#                    'nt25': [1, 0, 2, 3]}
+# MAX_CAR_NUM = 30
 
 
-class LargeGridPhase(Phase):
+class LargeGridPhase(PhaseMap):
     def __init__(self):
-        two_phase = []
-        phase = {'green': 'GGgsrrGGgsrr', 'yellow': 'yyysrryyysrr'}
-        two_phase.append(phase)
-        phase = {'green': 'srrGGgsrrGGg', 'yellow': 'srryyysrryyy'}
-        two_phase.append(phase)
-        self.phases = {2: two_phase}
+        phases = ['GGgrrrGGgrrr', 'rrrGrGrrrGrG', 'rrrGGrrrrGGr',
+                  'rrrGGGrrrrrr', 'rrrrrrrrrGGG']
+        self.phases = {PHASE_NUM: PhaseSet(phases)}
 
 
 class LargeGridController:
-    def __init__(self, nodes):
-        self.name = 'naive'
-        self.nodes = nodes
+    def __init__(self, node_names):
+        self.name = 'greedy'
+        self.node_names = node_names
 
     def forward(self, obs):
         actions = []
-        for ob, node in zip(obs, self.nodes):
-            actions.append(self.greedy(ob, node))
+        for ob, node_name in zip(obs, self.node_names):
+            actions.append(self.greedy(ob, node_name))
         return actions
 
-    def greedy(self, ob, node):
+    def greedy(self, ob, node_name):
         # hard code the mapping from state to number of cars
-        phase = STATE_PHASE_MAP[node]
-        in_cars = np.zeros_like(phase)
-        for i, x in zip(phase, ob[:len(phase)]):
-            in_cars[i] = x
-        if (in_cars[0] + in_cars[2]) > (in_cars[1] + in_cars[3]):
-            return 0
-        return 1
+        flows = [ob[0] + ob[3], ob[2] + ob[5], ob[1] + ob[4],
+                 ob[1] + ob[2], ob[4] + ob[5]]
+        return np.argmax(np.array(flows))
 
 
 class LargeGridEnv(TrafficSimulator):
     def __init__(self, config, port=0, output_path='', is_record=False, record_stat=False):
-        self.num_ext_car_hourly = config.getint('num_ext_car_per_hour')
-        self.num_int_car_hourly = config.getint('num_int_car_per_hour')
+        self.peak_flow1 = config.getint('peak_flow1')
+        self.peak_flow2 = config.getint('peak_flow2')
+        self.init_density = config.getfloat('init_density')
         super().__init__(config, output_path, is_record, record_stat, port=port)
 
-    def _get_cross_action_num(self, node):
+    def _get_node_phase_id(self, node_name):
         return PHASE_NUM
 
     def _init_large_neighbor_map(self):
@@ -215,23 +210,43 @@ class LargeGridEnv(TrafficSimulator):
         self.neighbor_map = self._init_large_neighbor_map()
         # for spatial discount
         self.distance_map = self._init_large_distance_map()
+        self.max_distance = 6
         self.phase_map = LargeGridPhase()
         self.state_names = STATE_NAMES
-        self.state_mean_masks = STATE_MEAN_MASKS
 
-    def _init_sim_config(self):
+    def _init_sim_config(self, seed):
         return gen_rou_file(self.data_path,
-                            self.num_ext_car_hourly,
-                            self.num_int_car_hourly,
-                            seed=self.seed,
+                            self.peak_flow1,
+                            self.peak_flow2,
+                            self.init_density,
+                            seed=seed,
                             thread=self.sim_thread)
 
+    # def _init_sim_traffic(self):
+    #     lanes = self.sim.lane.getIDList()
+    #     internal_lanes = []
+    #     external_lanes = []
+    #     for lane in lanes:
+    #         tokens = lane.split('_')[0].split(':')[1].split(',')
+    #         if not tokens[0].startswith('nt'):
+    #             continue
+    #         if tokens[1].startswith('nt'):
+    #             internal_lanes.append(lane)
+    #         elif tokens[1].startswith('np'):
+    #             external_lanes.append(lane)
+    #     init_car_num = int(MAX_CAR_NUM * self.init_density)
+    #     i = 1
+    #     for lane in internal_lanes:
+    #         for _ in range(init_car_num):
+    #             dest_lane = np.random.choice(external_lanes)
+    #             car_id = 'init_car_%d' % i
+    #             self.sim.vehicle.add(car_id, route_id, typeID='type1', depart=0, departLane=lane,
+    #                                  departPos='random_free', departSpeed=5, arrivalLane=dest_lane)
+
+
     def plot_stat(self, rewards):
-        data_set = {}
-        data_set['car_num'] = np.array(self.car_num_stat)
-        data_set['car_speed'] = np.array(self.car_speed_stat)
-        data_set['reward'] = rewards
-        for name, data in data_set.items():
+        self.state_stat['reward'] = rewards
+        for name, data in self.state_stat.items():
             fig = plt.figure(figsize=(8, 6))
             plot_cdf(data)
             plt.ylabel(name)
@@ -251,16 +266,21 @@ if __name__ == '__main__':
     base_dir = './output_result/'
     if not os.path.exists(base_dir):
         os.mkdir(base_dir)
-    env = LargeGridEnv(config['ENV_CONFIG'], 2, base_dir, is_record=False, record_stat=True)
+    env = LargeGridEnv(config['ENV_CONFIG'], 2, base_dir, is_record=True, record_stat=True)
+    env.train_mode = False
+    time.sleep(2)
     ob = env.reset()
-    controller = LargeGridController(env.control_nodes)
+    controller = LargeGridController(env.node_names)
     rewards = []
     while True:
-        next_ob, reward, done, _ = env.step(controller.forward(ob))
-        rewards += list(reward)
+        next_ob, _, done, reward = env.step(controller.forward(ob))
+        rewards.append(reward)
         if done:
             break
         ob = next_ob
     env.plot_stat(np.array(rewards))
     logging.info('avg reward: %.2f' % np.mean(rewards))
     env.terminate()
+    time.sleep(2)
+    env.collect_tripinfo()
+    env.output_data()

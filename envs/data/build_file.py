@@ -11,7 +11,9 @@ regional reinforcement learning." American Control Conference (ACC), 2016. IEEE,
 import numpy as np
 import os
 
-SPEED_LIMIT = 20
+MAX_CAR_NUM = 30
+SPEED_LIMIT_ST = 20
+SPEED_LIMIT_AV = 11
 L0 = 200
 L0_end = 75
 N = 5
@@ -50,8 +52,8 @@ def output_nodes(node):
 
 def output_road_types():
     str_types = '<types>\n'
-    str_types += '  <type id="a" priority="2" numLanes="1" speed="%.2f"/>\n' % SPEED_LIMIT
-    str_types += '  <type id="b" priority="1" numLanes="1" speed="%.2f"/>\n' % SPEED_LIMIT
+    str_types += '  <type id="a" priority="2" numLanes="2" speed="%.2f"/>\n' % SPEED_LIMIT_ST
+    str_types += '  <type id="b" priority="1" numLanes="1" speed="%.2f"/>\n' % SPEED_LIMIT_AV
     str_types += '</types>\n'
     return str_types
 
@@ -96,29 +98,29 @@ def output_edges(edge):
     return str_edges
 
 
-def get_con_str(con, from_node, cur_node, to_node):
+def get_con_str(con, from_node, cur_node, to_node, from_lane, to_lane):
     from_edge = 'e:%s,%s' % (from_node, cur_node)
     to_edge = 'e:%s,%s' % (cur_node, to_node)
-    return con % (from_edge, to_edge)
+    return con % (from_edge, to_edge, from_lane, to_lane)
 
 
 def get_con_str_set(con, cur_node, n_node, s_node, w_node, e_node):
     str_cons = ''
     # go-through
-    str_cons += get_con_str(con, s_node, cur_node, n_node)
-    str_cons += get_con_str(con, n_node, cur_node, s_node)
-    str_cons += get_con_str(con, w_node, cur_node, e_node)
-    str_cons += get_con_str(con, e_node, cur_node, w_node)
+    str_cons += get_con_str(con, s_node, cur_node, n_node, 0, 0)
+    str_cons += get_con_str(con, n_node, cur_node, s_node, 0, 0)
+    str_cons += get_con_str(con, w_node, cur_node, e_node, 0, 0)
+    str_cons += get_con_str(con, e_node, cur_node, w_node, 0, 0)
     # left-turn
-    str_cons += get_con_str(con, s_node, cur_node, w_node)
-    str_cons += get_con_str(con, n_node, cur_node, e_node)
-    str_cons += get_con_str(con, w_node, cur_node, n_node)
-    str_cons += get_con_str(con, e_node, cur_node, s_node)
+    str_cons += get_con_str(con, s_node, cur_node, w_node, 0, 1)
+    str_cons += get_con_str(con, n_node, cur_node, e_node, 0, 1)
+    str_cons += get_con_str(con, w_node, cur_node, n_node, 1, 0)
+    str_cons += get_con_str(con, e_node, cur_node, s_node, 1, 0)
     # right-turn
-    str_cons += get_con_str(con, s_node, cur_node, e_node)
-    str_cons += get_con_str(con, n_node, cur_node, w_node)
-    str_cons += get_con_str(con, w_node, cur_node, s_node)
-    str_cons += get_con_str(con, e_node, cur_node, n_node)
+    str_cons += get_con_str(con, s_node, cur_node, e_node, 0, 0)
+    str_cons += get_con_str(con, n_node, cur_node, w_node, 0, 0)
+    str_cons += get_con_str(con, w_node, cur_node, s_node, 0, 0)
+    str_cons += get_con_str(con, e_node, cur_node, n_node, 0, 0)
     return str_cons
 
 
@@ -218,88 +220,118 @@ def sample_od_pair(orig_edges, dest_edges):
     return from_edges, to_edges
 
 
-def output_flows(num_ext_car_hourly, num_int_car_hourly, seed=None):
+def init_routes(density):
+    init_flow = '  <flow id="i:%s" departPos="random_free" from="%s" to="%s" begin="0" end="1" departLane="%d" departSpeed="0" number="%d" type="type1"/>\n'
+    output = ''
+    in_nodes = [5, 10, 15, 20, 25, 21, 16, 11, 6, 1,
+                1, 2, 3, 4, 5, 25, 24, 23, 22, 21]
+    out_nodes = [6, 7, 8, 9, 10, 16, 17, 18, 19, 20,
+                 1, 2, 3, 4, 5, 11, 12, 13, 14, 15]
+    # external edges
+    sink_edges = []
+    for i, j in zip(in_nodes, out_nodes):
+        node1 = 'nt' + str(i)
+        node2 = 'np' + str(j)
+        sink_edges.append('e:%s,%s' % (node1, node2))
+
+    def get_od(node1, node2, k, lane=0):
+        source_edge = 'e:%s,%s' % (node1, node2)
+        sink_edge = np.random.choice(sink_edges)
+        return init_flow % (str(k), source_edge, sink_edge, lane, car_num)
+
+    # streets
+    k = 1
+    car_num = int(MAX_CAR_NUM * density)
+    for i in range(1, 25, 5):
+        for j in range(4):
+            node1 = 'nt' + str(i + j)
+            node2 = 'nt' + str(i + j + 1)
+            output += get_od(node1, node2, k)
+            k += 1
+            output += get_od(node2, node1, k)
+            k += 1
+            output += get_od(node1, node2, k, lane=1)
+            k += 1
+            output += get_od(node2, node1, k, lane=1)
+            k += 1
+    # avenues
+    for i in range(1, 6):
+        for j in range(0, 20, 5):
+            node1 = 'nt' + str(i + j)
+            node2 = 'nt' + str(i + j + 5)
+            output += get_od(node1, node2, k)
+            k += 1
+            output += get_od(node2, node1, k)
+            k += 1
+    return output
+
+def output_flows(peak_flow1, peak_flow2, density, seed=None):
+    '''
+    flow1: x11, x12, x13, x14, x15 -> x1, x2, x3, x4, x5
+    flow2: x16, x17, x18, x19, x20 -> x6, x7, x8, x9, x10
+    flow3: x1, x2, x3, x4, x5 -> x15, x14, x13, x12, x11
+    flow4: x6, x7, x8, x9, x10 -> x20, x19, x18, x17, x16
+    '''
     if seed is not None:
         np.random.seed(seed)
-    prob = num_int_car_hourly / 3600
-    ext_flow = '  <flow id="fe:%s" departPos="random_free" from="%s" to="%s" begin="%d" end="%d" vehsPerHour="%d" type="type1"/>\n'
-    int_flow = '  <flow id="fi:%s" departPos="random_free" from="%s" to="%s" begin="%d" end="%d" probability="%.2f" type="type1"/>\n'
+    ext_flow = '  <flow id="f:%s" departPos="random_free" from="%s" to="%s" begin="%d" end="%d" vehsPerHour="%d" type="type1"/>\n'
     str_flows = '<routes>\n'
     str_flows += '  <vType id="type1" length="5" accel="5" decel="10"/>\n'
-    # create internal origins and destinations
-    origs = []
-    for i in [17, 19, 7, 9]:
-        cur_orig = []
-        n_node = 'nt' + str(i + 5)
-        s_node = 'nt' + str(i - 5)
-        w_node = 'nt' + str(i - 1)
-        e_node = 'nt' + str(i + 1)
-        cur_node = 'nt' + str(i)
-        for next_node in [n_node, s_node, w_node, e_node]:
-            edge1 = 'e:%s,%s' % (next_node, cur_node)
-            edge2 = 'e:%s,%s' % (cur_node, next_node)
-            cur_orig.append([edge1, edge2])
-        origs.append(cur_orig)
-    origs = np.array(origs)
+    # initial traffic dist
+    if density > 0:
+        str_flows += init_routes(density)
 
-    dests = []
-    dests.append(get_external_od([3, 4, 5]))
-    dests.append(get_external_od([6, 7, 8]))
-    dests.append(get_external_od([8, 9, 10]))
-    dests.append(get_external_od([11, 12, 13]))
-    dests.append(get_external_od([13, 14, 15]))
-    dests.append(get_external_od([16, 17, 18]))
-    dests.append(get_external_od([18, 19, 20]))
-    dests = np.array(dests)
-
-    times = range(0, 7201, 1200)
-    orig_inds = [[0, 3], [0, 1], [1, 2], [2, 3], [0, 3], [1, 2]]
-    dest_inds = [[2, 6], [2, 6], [6, 3], [4, 0], [0, 4], [5, 1]]
-
-    # create external origins and destinations
+    # create external origins and destinations for flows
     srcs = []
-    srcs.append(get_external_od([1, 2, 3, 13, 14, 15], dest=False))
-    srcs.append(get_external_od([2, 3, 4, 16, 17, 18], dest=False))
-    srcs.append(get_external_od([3, 4, 5, 17, 18, 19], dest=False))
-    srcs.append(get_external_od([6, 7, 8, 18, 19, 20], dest=False))
-    srcs.append(get_external_od([1, 2, 3, 7, 8, 9], dest=False))
-    srcs.append(get_external_od([2, 3, 4, 8, 9, 10], dest=False))
+    srcs.append(get_external_od([12, 13, 14], dest=False))
+    srcs.append(get_external_od([16, 18, 20], dest=False))
+    srcs.append(get_external_od([2, 3, 4], dest=False))
+    srcs.append(get_external_od([6, 8, 10], dest=False))
 
     sinks = []
-    sinks.append(get_external_od([13, 12, 11, 5, 4, 3]))
-    sinks.append(get_external_od([14, 13, 12, 8, 7, 6]))
-    sinks.append(get_external_od([15, 14, 13, 9, 8, 7]))
-    sinks.append(get_external_od([18, 17, 16, 10, 9, 8]))
-    sinks.append(get_external_od([13, 12, 11, 19, 18, 17]))
-    sinks.append(get_external_od([14, 13, 12, 20, 19, 18]))
+    sinks.append(get_external_od([2, 3, 4]))
+    sinks.append(get_external_od([6, 8, 10]))
+    sinks.append(get_external_od([14, 13, 12]))
+    sinks.append(get_external_od([20, 18, 16]))
 
-    for t in range(len(times) - 1):
-        name = str(t)
-        t_begin, t_end = times[t], times[t + 1]
-        # internal flow
-        k = 0
-        for i, j in zip(orig_inds[t], dest_inds[t]):
-            from_edges, to_edges = sample_od_pair(origs[i], dests[j])
-            for e1, e2 in zip(from_edges, to_edges):
-                cur_name = name + '_' + str(k)
-                str_flows += int_flow % (cur_name, e1, e2, t_begin, t_end, prob)
-                k += 1
+    # create volumes per 5 min for flows
+    ratios1 = np.array([0.4, 0.7, 0.9, 1.0, 0.75, 0.5, 0.25]) # start from 0
+    ratios2 = np.array([0.3, 0.8, 0.9, 1.0, 0.8, 0.6, 0.2])   # start from 15min
+    flows1 = peak_flow1 * 0.6 * ratios1
+    flows2 = peak_flow1 * ratios1
+    flows3 = peak_flow2 * 0.6 * ratios2
+    flows4 = peak_flow2 * ratios2
+    flows = [flows1, flows2, flows3, flows4]
+    times = np.arange(0, 3001, 300)
+    id1 = len(flows1)
+    id2 = len(times) - 1 - id1
+    for i in range(len(times) - 1):
+        name = str(i)
+        t_begin, t_end = times[i], times[i + 1]
         # external flow
         k = 0
-        for e1, e2 in zip(srcs[t], sinks[t]):
-            cur_name = name + '_' + str(k)
-            str_flows += ext_flow % (cur_name, e1, e2, t_begin, t_end, num_ext_car_hourly)
-            k += 1
+        if i < id1:
+            for j in [0, 1]:
+                for e1, e2 in zip(srcs[j], sinks[j]):
+                    cur_name = name + '_' + str(k)
+                    str_flows += ext_flow % (cur_name, e1, e2, t_begin, t_end, flows[j][i])
+                    k += 1
+        if i >= id2:
+            for j in [2, 3]:
+                for e1, e2 in zip(srcs[j], sinks[j]):
+                    cur_name = name + '_' + str(k)
+                    str_flows += ext_flow % (cur_name, e1, e2, t_begin, t_end, flows[j][i - id2])
+                    k += 1
     str_flows += '</routes>\n'
     return str_flows
 
 
-def gen_rou_file(path, num_ext_car_hourly, num_int_car_hourly, seed=None, thread=None):
+def gen_rou_file(path, peak_flow1, peak_flow2, density, seed=None, thread=None):
     if thread is None:
         flow_file = 'exp.rou.xml'
     else:
         flow_file = 'exp_%d.rou.xml' % int(thread)
-    write_file(path + flow_file, output_flows(num_ext_car_hourly, num_int_car_hourly, seed=seed))
+    write_file(path + flow_file, output_flows(peak_flow1, peak_flow2, density, seed=seed))
     sumocfg_file = path + ('exp_%d.sumocfg' % thread)
     write_file(sumocfg_file, output_config(thread=thread))
     return sumocfg_file
@@ -315,61 +347,61 @@ def output_config(thread=None):
     str_config += '    <route-files value="%s"/>\n' % out_file
     str_config += '    <additional-files value="exp.add.xml"/>\n'
     str_config += '  </input>\n  <time>\n'
-    str_config += '    <begin value="0"/>\n    <end value="7200"/>\n'
+    str_config += '    <begin value="0"/>\n    <end value="3600"/>\n'
     str_config += '  </time>\n</configuration>\n'
     return str_config
 
 
-def get_ild_str(from_node, to_node, ild_in=None, ild_out=None):
+def get_ild_str(from_node, to_node, ild_str, lane_i=0):
     edge = '%s,%s' % (from_node, to_node)
-    ild_str = ''
-    if ild_in:
-        ild_str += ild_in % (edge, 'e:' + edge)
-    if ild_out:
-        ild_str += ild_out % (edge, 'e:' + edge)
-    return ild_str
+    return ild_str % (edge, lane_i, 'e:' + edge, lane_i)
 
 
-def output_ild(ild_in, ild_out):
+def output_ild(ild):
     str_adds = '<additional>\n'
     in_edges = [5, 10, 15, 20, 25, 21, 16, 11, 6, 1,
                 1, 2, 3, 4, 5, 25, 24, 23, 22, 21]
     out_edges = [6, 7, 8, 9, 10, 16, 17, 18, 19, 20,
                  1, 2, 3, 4, 5, 11, 12, 13, 14, 15]
     # external edges
-    for i, j in zip(in_edges, out_edges):
+    for k, (i, j) in enumerate(zip(in_edges, out_edges)):
         node1 = 'nt' + str(i)
         node2 = 'np' + str(j)
-        str_adds += get_ild_str(node1, node2, ild_in=ild_in)
-        str_adds += get_ild_str(node2, node1, ild_out=ild_out)
+        str_adds += get_ild_str(node2, node1, ild)
+        if k < 10:
+            # streets
+            str_adds += get_ild_str(node2, node1, ild, lane_i=1)
     # streets
     for i in range(1, 25, 5):
         for j in range(4):
             node1 = 'nt' + str(i + j)
             node2 = 'nt' + str(i + j + 1)
-            str_adds += get_ild_str(node1, node2, ild_in=ild_in, ild_out=ild_out)
-            str_adds += get_ild_str(node2, node1, ild_in=ild_in, ild_out=ild_out)
+            str_adds += get_ild_str(node1, node2, ild)
+            str_adds += get_ild_str(node2, node1, ild)
+            str_adds += get_ild_str(node1, node2, ild, lane_i=1)
+            str_adds += get_ild_str(node2, node1, ild, lane_i=1)
     # avenues
     for i in range(1, 6):
         for j in range(0, 20, 5):
             node1 = 'nt' + str(i + j)
             node2 = 'nt' + str(i + j + 5)
-            str_adds += get_ild_str(node1, node2, ild_in=ild_in, ild_out=ild_out)
-            str_adds += get_ild_str(node2, node1, ild_in=ild_in, ild_out=ild_out)
+            str_adds += get_ild_str(node1, node2, ild)
+            str_adds += get_ild_str(node2, node1, ild)
     str_adds += '</additional>\n'
     return str_adds
 
 
 def output_tls(tls, phase):
     str_adds = '<additional>\n'
-    # all crosses have 2 phases
-    two_phases = ['GGgrrrGGgrrr', 'yyyrrryyyrrr',
-                  'rrrGGgrrrGGg', 'rrryyyrrryyy']
+    # all crosses have 3 phases
+    three_phases = ['GGgrrrGGgrrr', 'yyyrrryyyrrr',
+                    'rrrGrGrrrGrG', 'rrrGryrrrGry',
+                    'rrrGGrrrrGGr', 'rrryyrrrryyr']
     phase_duration = [30, 3]
     for i in range(1, 26):
         node = 'nt' + str(i)
         str_adds += tls % node
-        for k, p in enumerate(two_phases):
+        for k, p in enumerate(three_phases):
             str_adds += phase % (phase_duration[k % 2], p)
         str_adds += '  </tlLogic>\n'
     str_adds += '</additional>\n'
@@ -389,7 +421,7 @@ def main():
     write_file('./exp.edg.xml', output_edges(edge))
 
     # con.xml file
-    con = '  <connection from="%s" to="%s" fromLane="0" toLane="0"/>\n'
+    con = '  <connection from="%s" to="%s" fromLane="%d" toLane="%d"/>\n'
     write_file('./exp.con.xml', output_connections(con))
 
     # tls.xml file
@@ -404,15 +436,15 @@ def main():
     os.system('netconvert -c exp.netccfg')
 
     # raw.rou.xml file
-    write_file('./exp.rou.xml', output_flows(1000, 2000))
+    write_file('./exp.rou.xml', output_flows(1000, 2000, 0.2))
 
     # generate rou.xml file
     # os.system('jtrrouter -n exp.net.xml -r exp.raw.rou.xml -o exp.rou.xml')
 
     # add.xml file
-    ild_out = '  <inductionLoop file="ild_in.out" freq="15" id="ild_out:%s" lane="%s_0" pos="-50"/>\n'
-    ild_in = '  <inductionLoop file="ild_out.out" freq="15" id="ild_in:%s" lane="%s_0" pos="10"/>\n'
-    write_file('./exp.add.xml', output_ild(ild_in, ild_out))
+    ild = '  <laneAreaDetector file="ild.out" freq="1" id="ild:%s_%d" lane="%s_%d" pos="-50" endPos="-1"/>\n'
+    # ild_in = '  <inductionLoop file="ild_out.out" freq="15" id="ild_in:%s" lane="%s_0" pos="10"/>\n'
+    write_file('./exp.add.xml', output_ild(ild))
 
     # config file
     write_file('./exp.sumocfg', output_config())
