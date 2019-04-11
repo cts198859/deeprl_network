@@ -307,7 +307,7 @@ class TrafficSimulator:
             nodes[node_name].lanes_in = lanes_in
             ilds_in = []
             for lane_name in lanes_in:
-                ild_name = 'ild:' + lane_name.split(':')[-1]
+                ild_name = 'ild,' + lane_name.split(',')[-1]
                 if ild_name not in ilds_in:
                     ilds_in.append(ild_name)
             nodes[node_name].ilds_in = ilds_in
@@ -384,10 +384,7 @@ class TrafficSimulator:
                 if self.obj in ['wait', 'hybrid']:
                     max_pos = 0
                     car_wait = 0
-                    if self.name == 'real_net':
-                        cur_cars = self.sim.lane.getLastStepVehicleIDs(ild)
-                    else:
-                        cur_cars = self.sim.lanearea.getLastStepVehicleIDs(ild)
+                    cur_cars = self.sim.lanearea.getLastStepVehicleIDs(ild)
                     for vid in cur_cars:
                         car_pos = self.sim.vehicle.getLanePosition(vid)
                         if car_pos > max_pos:
@@ -455,11 +452,7 @@ class TrafficSimulator:
         queues = []
         for node_name in self.node_names:
             for ild in self.nodes[node_name].ilds_in:
-                if self.name == 'real_net':
-                    # lane_name = ild.split(':')[1]
-                    lane_name = ild
-                else:
-                    lane_name = 'e:' + ild.split(':')[1]
+                lane_name = 'e,' + ild.split(',')[1]
                 queues.append(self.sim.lane.getLastStepHaltingNumber(lane_name))
         avg_queue = np.mean(np.array(queues))
         std_queue = np.std(np.array(queues))
