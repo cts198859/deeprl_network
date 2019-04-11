@@ -287,6 +287,7 @@ class OnPolicyBuffer(TransBuffer):
         Rs.reverse()
         Advs.reverse()
         self.Rs = Rs
+        self.Advs = Advs
 
 
 class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
