@@ -76,27 +76,17 @@ class Counter:
         self.test_step = test_step
         self.log_step = log_step
         self.stop = False
-        # self.init_test = True
 
     def next(self):
         self.cur_step = next(self.counter)
         return self.cur_step
 
     def should_test(self):
-        # if self.init_test:
-        #     self.init_test = False
-        #     return True
         test = False
         if (self.cur_step - self.cur_test_step) >= self.test_step:
             test = True
             self.cur_test_step = self.cur_step
         return test
-
-    # def update_test(self, reward):
-    #     if self.prev_reward is not None:
-    #         if abs(self.prev_reward - reward) <= self.delta_reward:
-    #             self.stop = True
-    #     self.prev_reward = reward
 
     def should_log(self):
         return (self.cur_step % self.log_step == 0)
@@ -139,57 +129,62 @@ class Trainer():
             summ = self.sess.run(self.test_summary, {self.test_reward: reward})
         self.summary_writer.add_summary(summ, global_step=global_step)
 
+    def _get_policy(self, ob, done, mode='train'):
+        if self.agent.startswith('ma2c'):
+            self.ps = self.env.get_fingerprint()
+            policy = self.model.forward(np.array(ob), done, self.ps)
+        else:
+            policy = self.model.forward(ob, done)
+        action = []
+        for pi in policy:
+            if mode == 'train':
+                action.append(np.random.choice(np.arange(len(pi)), p=pi))
+            else:
+                action.append(np.argmax(pi))
+        return policy, np.array(action)
+
+    def _get_value(self, ob, done, action):
+        if self.agent.startswith('ma2c'):
+            value = self.model.forward(np.array(ob), done, self.ps, np.array(action), 'v')
+        else:
+            self.naction = self.env.get_neighbor_action(action)
+            value = self.model.forward(ob, done, self.naction, 'v')
+        return value
+
     def explore(self, prev_ob, prev_done):
         ob = prev_ob
         done = prev_done
         rewards = []
         for _ in range(self.n_step):
-            if self.agent.endswith('a2c'):
-                policy, value = self.model.forward(ob, done)
-                # need to update fingerprint before calling step
-                if self.agent == 'ma2c':
-                    self.env.update_fingerprint(policy)
-                if self.agent == 'a2c':
-                    action = np.random.choice(np.arange(len(policy)), p=policy)
-                else:
-                    action = []
-                    for pi in policy:
-                        action.append(np.random.choice(np.arange(len(pi)), p=pi))
-            else:
-                action, policy = self.model.forward(ob, mode='explore')
+            # pre-decision
+            policy, action = self._get_policy(ob, done)
+            # post-decision
+            value = self._get_value(ob, done, action)
+            # transition
+            self.env.update_fingerprint(policy)
             next_ob, reward, done, global_reward = self.env.step(action)
             rewards.append(global_reward)
             global_step = self.global_counter.next()
             self.cur_step += 1
-            if self.agent.endswith('a2c'):
-                self.model.add_transition(ob, action, reward, value, done)
+            # collect experience
+            if self.agent.startswith('ma2c'):
+                self.model.add_transition(ob, self.ps, action, reward, value, done)
             else:
-                self.model.add_transition(ob, action, reward, next_ob, done)
+                self.model.add_transition(ob, self.naction, action, reward, value, done)
             # logging
             if self.global_counter.should_log():
                 logging.info('''Training: global step %d, episode step %d,
                                    ob: %s, a: %s, pi: %s, r: %.2f, train r: %.2f, done: %r''' %
                              (global_step, self.cur_step,
                               str(ob), str(action), str(policy), global_reward, np.mean(reward), done))
-            # # termination
-            # if done:
-            #     self.env.terminate()
-            #     time.sleep(2)
-            #     ob = self.env.reset()
-            #     self._add_summary(cum_reward / float(self.cur_step), global_step)
-            #     cum_reward = 0
-            #     self.cur_step = 0
-            # else:
             if done:
                 break
             ob = next_ob
-        if self.agent.endswith('a2c'):
-            if done:
-                R = 0 if self.agent == 'a2c' else [0] * self.model.n_agent
-            else:
-                R = self.model.forward(ob, False, 'v')
+        if done:
+            R = np.zeros(self.model.n_agent)
         else:
-            R = 0
+            _, action = self._get_policy(ob, done)
+            R = self._get_value(ob, done, action)
         return ob, done, R, rewards
 
     def perform(self, test_ind):
@@ -198,18 +193,9 @@ class Trainer():
         while True:
             if self.agent == 'greedy':
                 action = self.model.forward(ob)
-            elif self.agent.endswith('a2c'):
-                policy = self.model.forward(ob, False, 'p')
-                if self.agent == 'ma2c':
-                    self.env.update_fingerprint(policy)
-                if self.agent == 'a2c':
-                    action = np.argmax(np.array(policy))
-                else:
-                    action = []
-                    for pi in policy:
-                        action.append(np.argmax(np.array(pi)))
             else:
-                action, _ = self.model.forward(ob)
+                policy, action = self._get_policy(ob, False, mode='test')
+                self.env.update_fingerprint(policy)
             next_ob, reward, done, global_reward = self.env.step(action)
             rewards.append(global_reward)
             if done:
@@ -269,10 +255,7 @@ class Trainer():
                 ob, done, R, cur_rewards = self.explore(ob, done)
                 rewards += cur_rewards
                 global_step = self.global_counter.cur_step
-                if self.agent.endswith('a2c'):
-                    self.model.backward(R, self.summary_writer, global_step)
-                else:
-                    self.model.backward(self.summary_writer, global_step)
+                self.model.backward(R, self.summary_writer, global_step)
                 # termination
                 if done:
                     self.env.terminate()

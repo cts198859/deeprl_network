@@ -1,5 +1,5 @@
 """
-Main function for training and evaluating agents in traffic envs
+Main function for training and evaluating MARL algorithms in traffic envs
 @author: Tianshu Chu
 """
 
@@ -8,26 +8,24 @@ import configparser
 import logging
 import tensorflow as tf
 import threading
-# from envs.test_env import GymEnv
-from envs.small_grid_env import SmallGridEnv, SmallGridController
 from envs.large_grid_env import LargeGridEnv, LargeGridController
-from envs.real_net_env import RealNetEnv, RealNetController
-from agents.models import A2C, IA2C, MA2C, IQL
+from agents.models import IA2C, IA2C_FP, MA2C_NC
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
                    init_dir, init_log, init_test_flag,
                    plot_evaluation, plot_train)
 
+
 def parse_args():
-    default_base_dir = '/Users/tchu/Documents/rl_test/signal_control_results/eval_dec16/real_net'
-    default_config_dir = './config/config_test_large.ini'
+    default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ia2c_test'
+    default_config_dir = './config/config_ia2c.ini'
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-dir', type=str, required=False,
                         default=default_base_dir, help="experiment base dir")
     subparsers = parser.add_subparsers(dest='option', help="train or evaluate")
     sp = subparsers.add_parser('train', help='train a single agent under base dir')
     sp.add_argument('--test-mode', type=str, required=False,
-                    default='no_test',
+                    default='after_train_test',
                     help="test mode during training",
                     choices=['no_test', 'in_train_test', 'after_train_test', 'all_test'])
     sp.add_argument('--config-dir', type=str, required=False,
@@ -46,34 +44,12 @@ def parse_args():
 
 
 def init_env(config, port=0, naive_policy=False):
-    if config.get('scenario') == 'small_grid':
-        if not naive_policy:
-            return SmallGridEnv(config, port=port)
-        else:
-            env = SmallGridEnv(config, port=port)
-            policy = SmallGridController(env.node_names)
-            return env, policy
-    elif config.get('scenario') == 'large_grid':
-        if not naive_policy:
-            return LargeGridEnv(config, port=port)
-        else:
-            env = LargeGridEnv(config, port=port)
-            policy = LargeGridController(env.node_names)
-            return env, policy
-    elif config.get('scenario') == 'real_net':
-        if not naive_policy:
-            return RealNetEnv(config, port=port)
-        else:
-            env = RealNetEnv(config, port=port)
-            policy = RealNetController(env.node_names, env.nodes)
-            return env, policy
-    elif config.get('scenario') in ['Acrobot-v1', 'CartPole-v0', 'MountainCar-v0']:
-        return GymEnv(config.get('scenario'))
+    if not naive_policy:
+        return LargeGridEnv(config, port=port)
     else:
-        if not naive_policy:
-            return None
-        else:
-            return None, None
+        env = LargeGridEnv(config, port=port)
+        policy = LargeGridController(env.node_names)
+        return env, policy
 
 
 def train(args):
@@ -88,8 +64,7 @@ def train(args):
 
     # init env
     env = init_env(config['ENV_CONFIG'])
-    logging.info('Training: s dim: %d, a dim %d, s dim ls: %r, a dim ls: %r' %
-                 (env.n_s, env.n_a, env.n_s_ls, env.n_a_ls))
+    logging.info('Training: a dim %d, agent dim: %d' % (env.n_a, env.n_agent))
 
     # init step counter
     total_step = int(config.getfloat('TRAIN_CONFIG', 'total_step'))
@@ -99,57 +74,34 @@ def train(args):
 
     # init centralized or multi agent
     seed = config.getint('ENV_CONFIG', 'seed')
-    # coord = tf.train.Coordinator()
 
-    # if env.agent == 'a2c':
-    #     model = A2C(env.n_s, env.n_a, total_step,
-    #                 config['MODEL_CONFIG'], seed=seed)
     if env.agent == 'ia2c':
-        model = IA2C(env.n_s_ls, env.n_a_ls, env.n_w_ls, total_step,
-                     config['MODEL_CONFIG'], seed=seed)
-    elif env.agent == 'ma2c':
-        model = MA2C(env.n_s_ls, env.n_a_ls, env.n_w_ls, env.n_f_ls, total_step,
-                     config['MODEL_CONFIG'], seed=seed)
-    elif env.agent == 'iqld':
-        model = IQL(env.n_s_ls, env.n_a_ls, env.n_w_ls, total_step, config['MODEL_CONFIG'],
-                    seed=0, model_type='dqn')
+        model = IA2C(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                     total_step, config['MODEL_CONFIG'], seed=seed)
+    elif env.agent == 'ia2c_fp':
+        model = IA2C_FP(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                        total_step, config['MODEL_CONFIG'], seed=seed)
+    elif env.agent == 'ma2c_nc':
+        model = MA2C_NC(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                        total_step, config['MODEL_CONFIG'], seed=seed)
     else:
-        model = IQL(env.n_s_ls, env.n_a_ls, env.n_w_ls, total_step, config['MODEL_CONFIG'],
-                    seed=0, model_type='lr')
+        model = None
 
     # disable multi-threading for safe SUMO implementation
-    # threads = []
     summary_writer = tf.summary.FileWriter(dirs['log'])
     trainer = Trainer(env, model, global_counter, summary_writer, in_test, output_path=dirs['data'])
     trainer.run()
-    # if in_test or post_test:
-    #     # assign a different port for test env
-    #     test_env = init_env(config['ENV_CONFIG'], port=1)
-    #     tester = Tester(test_env, model, global_counter, summary_writer, dirs['data'])
-
-    # def train_fn():
-    #     trainer.run(coord)
-
-    # thread = threading.Thread(target=train_fn)
-    # thread.start()
-    # threads.append(thread)
-    # if in_test:
-    #     def test_fn():
-    #         tester.run_online(coord)
-    #     thread = threading.Thread(target=test_fn)
-    #     thread.start()
-    #     threads.append(thread)
-    # coord.join(threads)
-
-    # post-training test
-    if post_test:
-        tester = Tester(env, model, global_counter, summary_writer, dirs['data'])
-        tester.run_offline(dirs['data'])
 
     # save model
     final_step = global_counter.cur_step
     logging.info('Training: save final model at step %d ...' % final_step)
     model.save(dirs['model'], final_step)
+
+    # post-training test
+    if post_test:
+        test_dirs = init_dir(base_dir, pathes=['eva_data'])
+        evaluator = Evaluator(env, model, test_dirs['eva_data'])
+        evaluator.run()
 
 
 def evaluate_fn(agent_dir, output_dir, seeds, port):
@@ -166,25 +118,22 @@ def evaluate_fn(agent_dir, output_dir, seeds, port):
 
     # init env
     env, greedy_policy = init_env(config['ENV_CONFIG'], port=port, naive_policy=True)
-    logging.info('Evaluation: s dim: %d, a dim %d, s dim ls: %r, a dim ls: %r' %
-                 (env.n_s, env.n_a, env.n_s_ls, env.n_a_ls))
     env.init_test_seeds(seeds)
 
     # load model for agent
     if agent != 'greedy':
         # init centralized or multi agent
-        if agent == 'a2c':
-            model = A2C(env.n_s, env.n_a, 0, config['MODEL_CONFIG'])
-        elif agent == 'ia2c':
-            model = IA2C(env.n_s_ls, env.n_a_ls, env.n_w_ls, 0, config['MODEL_CONFIG'])
-        elif agent == 'ma2c':
-            model = MA2C(env.n_s_ls, env.n_a_ls, env.n_w_ls, env.n_f_ls, 0, config['MODEL_CONFIG'])
-        elif agent == 'iqld':
-            model = IQL(env.n_s_ls, env.n_a_ls, env.n_w_ls, 0, config['MODEL_CONFIG'],
-                        seed=0, model_type='dqn')
+        if env.agent == 'ia2c':
+            model = IA2C(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                         0, config['MODEL_CONFIG'])
+        elif env.agent == 'ia2c_fp':
+            model = IA2C_FP(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                            0, config['MODEL_CONFIG'])
+        elif env.agent == 'ma2c_nc':
+            model = MA2C_NC(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                            0, config['MODEL_CONFIG'])
         else:
-            model = IQL(env.n_s_ls, env.n_a_ls, env.n_w_ls, 0, config['MODEL_CONFIG'],
-                        seed=0, model_type='lr')
+            return
         if not model.load(agent_dir + '/'):
             return
     else:
