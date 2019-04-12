@@ -59,7 +59,7 @@ def output_road_types():
 
 
 def get_edge_str(edge, from_node, to_node, edge_type):
-    edge_id = 'e,%s_%s' % (from_node, to_node)
+    edge_id = '%s_%s' % (from_node, to_node)
     return edge % (edge_id, from_node, to_node, edge_type)
 
 
@@ -99,8 +99,8 @@ def output_edges(edge):
 
 
 def get_con_str(con, from_node, cur_node, to_node, from_lane, to_lane):
-    from_edge = 'e,%s_%s' % (from_node, cur_node)
-    to_edge = 'e,%s_%s' % (cur_node, to_node)
+    from_edge = '%s_%s' % (from_node, cur_node)
+    to_edge = '%s_%s' % (cur_node, to_node)
     return con % (from_edge, to_edge, from_lane, to_lane)
 
 
@@ -204,9 +204,9 @@ def get_external_od(out_edges, dest=True):
         in_node = 'nt' + str(in_edge)
         out_node = 'np' + str(out_edge)
         if dest:
-            edge = 'e,%s_%s' % (in_node, out_node)
+            edge = '%s_%s' % (in_node, out_node)
         else:
-            edge = 'e,%s_%s' % (out_node, in_node)
+            edge = '%s_%s' % (out_node, in_node)
         cur_dest.append(edge)
     return cur_dest
 
@@ -232,10 +232,10 @@ def init_routes(density):
     for i, j in zip(in_nodes, out_nodes):
         node1 = 'nt' + str(i)
         node2 = 'np' + str(j)
-        sink_edges.append('e,%s_%s' % (node1, node2))
+        sink_edges.append('%s_%s' % (node1, node2))
 
     def get_od(node1, node2, k, lane=0):
-        source_edge = 'e,%s_%s' % (node1, node2)
+        source_edge = '%s_%s' % (node1, node2)
         sink_edge = np.random.choice(sink_edges)
         return init_flow % (str(k), source_edge, sink_edge, lane, car_num)
 
@@ -354,7 +354,7 @@ def output_config(thread=None):
 
 def get_ild_str(from_node, to_node, ild_str, lane_i=0):
     edge = '%s_%s' % (from_node, to_node)
-    return ild_str % (edge, lane_i, 'e,' + edge, lane_i)
+    return ild_str % (edge, lane_i, edge, lane_i)
 
 
 def output_ild(ild):
@@ -442,7 +442,7 @@ def main():
     # os.system('jtrrouter -n exp.net.xml -r exp.raw.rou.xml -o exp.rou.xml')
 
     # add.xml file
-    ild = '  <laneAreaDetector file="ild.out" freq="1" id="ild,%s_%d" lane="%s_%d" pos="-50" endPos="-1"/>\n'
+    ild = '  <laneAreaDetector file="ild.out" freq="1" id="%s_%d" lane="%s_%d" pos="-50" endPos="-1"/>\n'
     # ild_in = '  <inductionLoop file="ild_out.out" freq="15" id="ild_in:%s" lane="%s_0" pos="10"/>\n'
     write_file('./exp.add.xml', output_ild(ild))
 
