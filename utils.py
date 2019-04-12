@@ -253,9 +253,10 @@ class Trainer():
             rewards = []
             while True:
                 ob, done, R, cur_rewards = self.explore(ob, done)
+                dt = self.T - self.cur_step
                 rewards += cur_rewards
                 global_step = self.global_counter.cur_step
-                self.model.backward(R, self.summary_writer, global_step)
+                self.model.backward(R, dt, self.summary_writer, global_step)
                 # termination
                 if done:
                     self.env.terminate()

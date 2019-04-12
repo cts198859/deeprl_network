@@ -30,10 +30,10 @@ class IA2C:
         for i in range(self.n_agent):
             self.trans_buffer[i].add_transition(ob[i], naction[i], action[i], reward, value[i], done)
 
-    def backward(self, Rends, summary_writer=None, global_step=None):
+    def backward(self, Rends, dt, summary_writer=None, global_step=None):
         cur_lr = self.lr_scheduler.get(self.n_step)
         for i in range(self.n_agent):
-            obs, nas, acts, dones, Rs, Advs = self.trans_buffer[i].sample_transition(Rends[i])
+            obs, nas, acts, dones, Rs, Advs = self.trans_buffer[i].sample_transition(Rends[i], dt)
             if i == 0:
                 self.policy[i].backward(self.sess, obs, nas, acts, dones, Rs, Advs, cur_lr,
                                         summary_writer=summary_writer, global_step=global_step)
