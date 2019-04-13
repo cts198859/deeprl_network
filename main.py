@@ -17,8 +17,8 @@ from utils import (Counter, Trainer, Tester, Evaluator,
 
 
 def parse_args():
-    default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ia2c_test'
-    default_config_dir = './config/config_ia2c.ini'
+    default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ma2c_nc_test'
+    default_config_dir = './config/config_ma2c_nc.ini'
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-dir', type=str, required=False,
                         default=default_base_dir, help="experiment base dir")

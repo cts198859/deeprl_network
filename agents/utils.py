@@ -81,7 +81,7 @@ def batch_to_seq(x):
 
 
 def seq_to_batch(x):
-    return tf.concat(axis=0, values=x)
+    return tf.concat(x, axis=0)
 
 
 def lstm(xs, dones, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
@@ -153,17 +153,17 @@ def lstm_comm(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mod
     for t, (x, p, done) in enumerate(zip(xs, ps, dones)):
         # abuse 1 agent as 1 step
         x = batch_to_seq(tf.squeeze(x, axis=0))
-        p = batch_to_seq(tf.squeeze(p, aixs=0))
+        p = batch_to_seq(tf.squeeze(p, axis=0))
         out_h = []
         out_c = []
         out_m = []
         # communication phase
         for i, (xi, pi) in enumerate(zip(x, p)):
             hi = tf.expand_dims(h[i], axis=0)
-            si = tf.concat([hi, xi, pi], aixs=1)
+            si = tf.concat([hi, xi, pi], axis=1)
             mi = tf.nn.relu(tf.matmul(si, w_msg[i]) + b_msg[i])
             out_m.append(mi)
-        out_m = tf.transpose(tf.concat(out_m, axis=0)) # Nxn_h
+        out_m = tf.concat(out_m, axis=0) # Nxn_h
         # hidden phase
         for i, xi in enumerate(x):
             ci = tf.expand_dims(c[i], axis=0)
@@ -172,7 +172,7 @@ def lstm_comm(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mod
             ci = ci * (1-done)
             hi = hi * (1-done)
             # receive neighbor messages
-            mi = tf.reshape(tf.boolean_mask(out_m, masks[i]), [1,-1])
+            mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
             si = tf.concat([xi, mi], axis=1)
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
@@ -186,9 +186,11 @@ def lstm_comm(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mod
             out_c.append(ci)
         c = tf.concat(out_c, axis=0)
         h = tf.concat(out_h, axis=0)
-        xs[t] = h
+        xs[t] = tf.expand_dims(h, axis=0)
     s = tf.concat(axis=1, values=[c, h])
+    print(xs[0].shape)
     xs = seq_to_batch(xs) # TxNxn_h
+    print(xs.shape)
     xs = tf.transpose(xs, perm=[1,0,2]) # NxTxn_h
     return xs, s
 

@@ -51,18 +51,19 @@ class Policy:
         if agent_name is not None:
             name += '_' + str(agent_name)
         pi = fc(h, name, self.n_a, act=tf.nn.softmax)
-        return tf.squeeze(pi)
+        return pi
 
-    def _build_critic_head(self, h, na, agent_name=None):
+    def _build_critic_head(self, h, na, n_n=None, agent_name=None):
         name = 'v'
         if agent_name is not None:
             name += '_' + str(agent_name)
-        n_n = na.shape[-1]
+        if n_n is None:
+            n_n = na.shape[-1]
         na_sparse = tf.one_hot(na, self.n_a, axis=-1)
         na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
         h = tf.concat([h, na_sparse], 1)
         v = fc(h, name, 1, act=lambda x: x)
-        return tf.squeeze(v)
+        return v
 
 
 class LstmPolicy(Policy):
@@ -128,7 +129,7 @@ class LstmPolicy(Policy):
         h, new_states = lstm(h, done, self.states, 'lstm')
         pi = self._build_actor_head(h)
         v = self._build_critic_head(h, naction)
-        return pi, v, new_states
+        return tf.squeeze(pi), tf.squeeze(v), new_states
 
     def _reset(self):
         # forget the cumulative states every cum_step
@@ -141,7 +142,7 @@ class NCMultiAgentPolicy(Policy):
     and output dimensions are identical among all agents, and invalid values are casted as
     zeros during runtime."""
     def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        super().__init__(n_a, n_s, n_step, 'nc')
+        super().__init__(n_a, n_s, n_step, 'nc', None)
         self.n_agent = n_agent
         self.neighbor_mask = neighbor_mask #n_agent x n_agent
         self.n_h = n_h
@@ -157,8 +158,12 @@ class NCMultiAgentPolicy(Policy):
 
         with tf.variable_scope(self.name):
             self.pi_fw, self.v_fw, self.new_states = self._build_net('forward')
+            print(self.pi_fw.shape)
+            print(self.v_fw.shape)
         with tf.variable_scope(self.name, reuse=True):
             self.pi, self.v, _ = self._build_net('backward')
+            print(self.pi.shape)
+            print(self.v.shape)
         self._reset()
 
     def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
@@ -239,15 +244,15 @@ class NCMultiAgentPolicy(Policy):
         v_ls = []
         for i in range(self.n_agent):
             h_i = h[i] # Txn_h
-            mask_i = self.neighbor_mask[i]
-            naction_i = tf.transpose(tf.boolean_mask(action, mask_i)) # Txn_n
+            naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
             pi = self._build_actor_head(h_i, agent_name='%d' % i)
-            v = self._build_critic_head(h_i, naction_i, agent_name='%d' % i)
-            pi_ls.append(pi)
-            v_ls.append(v)
-        return tf.concat(pi_ls, axis=0), tf.concat(v_ls, axis=0), new_states
+            v = self._build_critic_head(h_i, naction_i, n_n=int(np.sum(self.neighbor_mask[i])),
+                                        agent_name='%d' % i)
+            pi_ls.append(tf.expand_dims(pi, axis=0))
+            v_ls.append(tf.expand_dims(v, axis=0))
+        return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 
     def _reset(self):
-        self.states_fw = np.zeros((self.n_agent, self.n_lstm * 2), dtype=np.float32)
-        self.states_bw = np.zeros((self.n_agent, self.n_lstm * 2), dtype=np.float32)
+        self.states_fw = np.zeros((self.n_agent, self.n_h * 2), dtype=np.float32)
+        self.states_bw = np.zeros((self.n_agent, self.n_h * 2), dtype=np.float32)
 

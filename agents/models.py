@@ -79,7 +79,10 @@ class IA2C:
     def _init_algo(self, n_s_ls, n_a, neighbor_mask, distance_mask, coop_gamma,
                    total_step, seed, model_config):
         # init params
-        self.n_s_ls = n_s_ls
+        if self.name.startswith('ia2c'):
+            self.n_s_ls = n_s_ls
+        else:
+            self.n_s = n_s_ls
         self.n_a = n_a
         self.neighbor_mask = neighbor_mask
         self.n_agent = len(self.neighbor_mask)
@@ -171,7 +174,7 @@ class MA2C_NC(IA2C):
             reward = np.clip(reward, -self.reward_clip, self.reward_clip)
         self.trans_buffer.add_transition(ob, p, action, reward, value, done)
 
-    def backward(self, Rends, summary_writer=None, global_step=None):
+    def backward(self, Rends, dt, summary_writer=None, global_step=None):
         cur_lr = self.lr_scheduler.get(self.n_step)
         obs, ps, acts, dones, Rs, Advs = self.trans_buffer.sample_transition(Rends)
         self.policy.backward(self.sess, obs, ps, acts, dones, Rs, Advs, cur_lr,
@@ -184,7 +187,7 @@ class MA2C_NC(IA2C):
         return NCMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
                                   self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
 
-    def _init_train(self, model_config):
+    def _init_train(self, model_config, distance_mask, coop_gamma):
         # init lr scheduler
         self._init_scheduler(model_config)
         v_coef = model_config.getfloat('value_coef')
@@ -196,4 +199,4 @@ class MA2C_NC(IA2C):
         # init loss
         self.policy.prepare_loss(v_coef, e_coef, max_grad_norm, alpha, epsilon)
         # init replay buffer
-        self.trans_buffer = MultiAgentOnPolicyBuffer(gamma)
+        self.trans_buffer = MultiAgentOnPolicyBuffer(gamma, coop_gamma, distance_mask)
