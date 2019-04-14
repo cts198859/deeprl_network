@@ -5,7 +5,7 @@ IA2C and MA2C algorithms
 
 import os
 from agents.utils import OnPolicyBuffer, MultiAgentOnPolicyBuffer, Scheduler
-from agents.policies import LstmPolicy, NCMultiAgentPolicy
+from agents.policies import LstmPolicy, NCMultiAgentPolicy, IC3MultiAgentPolicy
 import logging
 import numpy as np
 import tensorflow as tf
@@ -176,7 +176,7 @@ class MA2C_NC(IA2C):
 
     def backward(self, Rends, dt, summary_writer=None, global_step=None):
         cur_lr = self.lr_scheduler.get(self.n_step)
-        obs, ps, acts, dones, Rs, Advs = self.trans_buffer.sample_transition(Rends)
+        obs, ps, acts, dones, Rs, Advs = self.trans_buffer.sample_transition(Rends, dt)
         self.policy.backward(self.sess, obs, ps, acts, dones, Rs, Advs, cur_lr,
                              summary_writer=summary_writer, global_step=global_step)
 
@@ -200,3 +200,17 @@ class MA2C_NC(IA2C):
         self.policy.prepare_loss(v_coef, e_coef, max_grad_norm, alpha, epsilon)
         # init replay buffer
         self.trans_buffer = MultiAgentOnPolicyBuffer(gamma, coop_gamma, distance_mask)
+
+
+class MA2C_IC3(MA2C_NC):
+    def __init__(self, n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
+                 total_step, model_config, seed=0):
+        self.name = 'ma2c_ic3'
+        self._init_algo(n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
+                        total_step, seed, model_config)
+
+    def _init_policy(self):
+        return IC3MultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                   self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+
+

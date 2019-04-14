@@ -143,28 +143,7 @@ class NCMultiAgentPolicy(Policy):
     zeros during runtime."""
     def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
         super().__init__(n_a, n_s, n_step, 'nc', None)
-        self.n_agent = n_agent
-        self.neighbor_mask = neighbor_mask #n_agent x n_agent
-        self.n_h = n_h
-        self.ob_fw = tf.placeholder(tf.float32, [n_agent, 1, n_s]) # forward 1-step
-        self.policy_fw = tf.placeholder(tf.float32, [n_agent, 1, n_a])
-        self.action_fw = tf.placeholder(tf.int32, [n_agent, 1])
-        self.done_fw = tf.placeholder(tf.float32, [1])
-        self.ob_bw = tf.placeholder(tf.float32, [n_agent, n_step, n_s]) # backward n-step
-        self.policy_bw = tf.placeholder(tf.float32, [n_agent, n_step, n_a])
-        self.action_bw = tf.placeholder(tf.int32, [n_agent, n_step])
-        self.done_bw = tf.placeholder(tf.float32, [n_step])
-        self.states = tf.placeholder(tf.float32, [n_agent, n_h * 2])
-
-        with tf.variable_scope(self.name):
-            self.pi_fw, self.v_fw, self.new_states = self._build_net('forward')
-            print(self.pi_fw.shape)
-            print(self.v_fw.shape)
-        with tf.variable_scope(self.name, reuse=True):
-            self.pi, self.v, _ = self._build_net('backward')
-            print(self.pi.shape)
-            print(self.v.shape)
-        self._reset()
+        self._init_policy(n_agent, neighbor_mask, n_h)
 
     def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
                  summary_writer=None, global_step=None):
@@ -252,7 +231,58 @@ class NCMultiAgentPolicy(Policy):
             v_ls.append(tf.expand_dims(v, axis=0))
         return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 
+    def _init_policy(self, n_agent, neighbor_mask, n_h):
+        self.n_agent = n_agent
+        self.neighbor_mask = neighbor_mask #n_agent x n_agent
+        self.n_h = n_h
+        self.ob_fw = tf.placeholder(tf.float32, [n_agent, 1, self.n_s]) # forward 1-step
+        self.policy_fw = tf.placeholder(tf.float32, [n_agent, 1, self.n_a])
+        self.action_fw = tf.placeholder(tf.int32, [n_agent, 1])
+        self.done_fw = tf.placeholder(tf.float32, [1])
+        self.ob_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, self.n_s]) # backward n-step
+        self.policy_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, self.n_a])
+        self.action_bw = tf.placeholder(tf.int32, [n_agent, self.n_step])
+        self.done_bw = tf.placeholder(tf.float32, [self.n_step])
+        self.states = tf.placeholder(tf.float32, [n_agent, n_h * 2])
+
+        with tf.variable_scope(self.name):
+            self.pi_fw, self.v_fw, self.new_states = self._build_net('forward')
+        with tf.variable_scope(self.name, reuse=True):
+            self.pi, self.v, _ = self._build_net('backward')
+        self._reset()
+
     def _reset(self):
         self.states_fw = np.zeros((self.n_agent, self.n_h * 2), dtype=np.float32)
         self.states_bw = np.zeros((self.n_agent, self.n_h * 2), dtype=np.float32)
+
+
+class IC3MultiAgentPolicy(NCMultiAgentPolicy):
+    """Reference code: https://github.com/IC3Net/IC3Net/blob/master/comm.py.
+       Note in IC3, the message is generated from hidden state only, so current state
+       and neigbor policies are not included in the inputs."""
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
+        Policy.__init__(self, n_a, n_s, n_step, 'ic3', None)
+        self._init_policy(n_agent, neighbor_mask, n_h)
+
+    def _build_net(self, in_type):
+        if in_type == 'forward':
+            ob = self.ob_fw
+            action = self.action_fw
+            done = self.done_fw
+        else:
+            ob = self.ob_bw
+            action = self.action_bw
+            done = self.done_bw
+        h, new_states = lstm_ic3(ob, done, self.neighbor_mask, self.states, 'lstm_ic3')
+        pi_ls = []
+        v_ls = []
+        for i in range(self.n_agent):
+            h_i = h[i] # Txn_h
+            naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
+            pi = self._build_actor_head(h_i, agent_name='%d' % i)
+            v = self._build_critic_head(h_i, naction_i, n_n=int(np.sum(self.neighbor_mask[i])),
+                                        agent_name='%d' % i)
+            pi_ls.append(tf.expand_dims(pi, axis=0))
+            v_ls.append(tf.expand_dims(v, axis=0))
+        return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 

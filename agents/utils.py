@@ -188,9 +188,79 @@ def lstm_comm(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mod
         h = tf.concat(out_h, axis=0)
         xs[t] = tf.expand_dims(h, axis=0)
     s = tf.concat(axis=1, values=[c, h])
-    print(xs[0].shape)
     xs = seq_to_batch(xs) # TxNxn_h
-    print(xs.shape)
+    xs = tf.transpose(xs, perm=[1,0,2]) # NxTxn_h
+    return xs, s
+
+def lstm_ic3(xs, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
+             init_method=DEFAULT_METHOD):
+    n_agent = s.shape[0]
+    n_h = s.shape[1] // 2
+    n_s = xs.shape[-1]
+    xs = tf.transpose(xs, perm=[1,0,2]) # TxNxn_s
+    xs = batch_to_seq(xs)
+    # need dones to reset states
+    dones = batch_to_seq(dones) # Tx1
+    # create wts
+    w_msg = []
+    b_msg = []
+    w_ob = []
+    b_ob = []
+    wx_hid = []
+    wh_hid = []
+    b_hid = []
+    for i in range(n_agent):
+        with tf.variable_scope(scope + ('_%d' % i)):
+            w_msg.append(tf.get_variable("w_msg", [n_h, n_h],
+                                         initializer=init_method(init_scale, init_mode)))
+            b_msg.append(tf.get_variable("b_msg", [n_h],
+                                         initializer=tf.constant_initializer(0.0)))
+            w_ob.append(tf.get_variable("w_ob", [n_s, n_h],
+                                        initializer=init_method(init_scale, init_mode)))
+            b_ob.append(tf.get_variable("b_ob", [n_h],
+                                        initializer=tf.constant_initializer(0.0)))
+            wx_hid.append(tf.get_variable("wx_hid", [n_h, n_h*4],
+                                          initializer=init_method(init_scale, init_mode)))
+            wh_hid.append(tf.get_variable("wh_hid", [n_h, n_h*4],
+                                          initializer=init_method(init_scale, init_mode)))
+            b_hid.append(tf.get_variable("b_hid", [n_h*4],
+                                         initializer=tf.constant_initializer(0.0)))
+    c, h = tf.split(axis=1, num_or_size_splits=2, value=s)
+    # loop over steps
+    for t, (x, done) in enumerate(zip(xs, dones)):
+        # abuse 1 agent as 1 step
+        x = batch_to_seq(tf.squeeze(x, axis=0))
+        out_h = []
+        out_c = []
+        out_m = [tf.expand_dims(h[i], axis=0) for i in range(n_agent)]
+        out_m = tf.concat(out_m, axis=0) # Nxn_h
+        # hidden phase
+        for i, xi in enumerate(x):
+            ci = tf.expand_dims(c[i], axis=0)
+            hi = tf.expand_dims(h[i], axis=0)
+            # reset states for a new episode
+            ci = ci * (1-done)
+            hi = hi * (1-done)
+            # receive neighbor messages
+            mi = tf.reduce_mean(tf.boolean_mask(out_m, masks[i]), axis=0, keepdims=True)
+            # the state encoder in IC3 code is not consistent with that described in the paper.
+            # Here we follow the impelmentation in the paper.
+            si = tf.nn.tanh(tf.matmul(xi, w_ob[i]) + b_ob[i]) + tf.matmul(mi, w_msg[i]) + b_msg[i]
+            zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
+            ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
+            ii = tf.nn.sigmoid(ii)
+            fi = tf.nn.sigmoid(fi)
+            oi = tf.nn.sigmoid(oi)
+            ui = tf.tanh(ui)
+            ci = fi*ci + ii*ui
+            hi = oi*tf.tanh(ci)
+            out_h.append(hi)
+            out_c.append(ci)
+        c = tf.concat(out_c, axis=0)
+        h = tf.concat(out_h, axis=0)
+        xs[t] = tf.expand_dims(h, axis=0)
+    s = tf.concat(axis=1, values=[c, h])
+    xs = seq_to_batch(xs) # TxNxn_h
     xs = tf.transpose(xs, perm=[1,0,2]) # NxTxn_h
     return xs, s
 
@@ -314,11 +384,11 @@ class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
     def __init__(self, gamma, alpha, distance_mask):
         super().__init__(gamma, alpha, distance_mask)
 
-    def sample_transition(self, R):
+    def sample_transition(self, R, dt=0):
         if self.alpha < 0:
             self._add_R_Adv(R)
         else:
-            self._add_st_R_Adv(R)
+            self._add_st_R_Adv(R, dt)
         obs = np.transpose(np.array(self.obs, dtype=np.float32), (1, 0, 2))
         policies = np.transpose(np.array(self.adds, dtype=np.float32), (1, 0, 2))
         acts = np.transpose(np.array(self.acts, dtype=np.int32))
@@ -348,7 +418,7 @@ class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
         self.Rs = np.array(Rs)
         self.Advs = np.array(Advs)
 
-    def _add_st_R_Adv(self, R):
+    def _add_st_R_Adv(self, R, dt):
         Rs = []
         Advs = []
         vs = np.array(self.vs)
@@ -356,7 +426,7 @@ class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
             cur_Rs = []
             cur_Advs = []
             cur_R = R[i]
-            tdiff = 0
+            tdiff = dt
             distance_mask = self.distance_mask[i]
             max_distance = self.max_distance[i]
             for r, v, done in zip(self.rs[::-1], vs[::-1,i], self.dones[:0:-1]):
@@ -369,6 +439,7 @@ class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
                     rt = np.sum(r[distance_mask==t])
                     cur_R += (self.gamma * self.alpha) ** t * rt
                 cur_Adv = cur_R - v
+                tdiff += 1
                 cur_Rs.append(cur_R)
                 cur_Advs.append(cur_Adv)
             cur_Rs.reverse()

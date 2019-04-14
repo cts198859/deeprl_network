@@ -9,7 +9,7 @@ import logging
 import tensorflow as tf
 import threading
 from envs.large_grid_env import LargeGridEnv, LargeGridController
-from agents.models import IA2C, IA2C_FP, MA2C_NC
+from agents.models import IA2C, IA2C_FP, MA2C_NC, MA2C_IC3
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
                    init_dir, init_log, init_test_flag,
@@ -17,8 +17,8 @@ from utils import (Counter, Trainer, Tester, Evaluator,
 
 
 def parse_args():
-    default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ma2c_nc_test'
-    default_config_dir = './config/config_ma2c_nc.ini'
+    default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ma2c_ic3_test'
+    default_config_dir = './config/config_ma2c_ic3.ini'
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-dir', type=str, required=False,
                         default=default_base_dir, help="experiment base dir")
@@ -51,6 +51,22 @@ def init_env(config, port=0, naive_policy=False):
         policy = LargeGridController(env.node_names)
         return env, policy
 
+def init_agent(env, config, total_step, seed):
+    if env.agent == 'ia2c':
+        return IA2C(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                    total_step, config, seed=seed)
+    elif env.agent == 'ia2c_fp':
+        return IA2C_FP(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                       total_step, config, seed=seed)
+    elif env.agent == 'ma2c_nc':
+        return MA2C_NC(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                       total_step, config, seed=seed)
+    elif env.agent == 'ma2c_ic3':
+        return MA2C_IC3(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                        total_step, config, seed=seed)
+    else:
+        return None
+
 
 def train(args):
     base_dir = args.base_dir
@@ -74,18 +90,7 @@ def train(args):
 
     # init centralized or multi agent
     seed = config.getint('ENV_CONFIG', 'seed')
-
-    if env.agent == 'ia2c':
-        model = IA2C(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                     total_step, config['MODEL_CONFIG'], seed=seed)
-    elif env.agent == 'ia2c_fp':
-        model = IA2C_FP(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                        total_step, config['MODEL_CONFIG'], seed=seed)
-    elif env.agent == 'ma2c_nc':
-        model = MA2C_NC(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                        total_step, config['MODEL_CONFIG'], seed=seed)
-    else:
-        model = None
+    model = init_agent(env, config['MODEL_CONFIG'], total_step, seed)
 
     # disable multi-threading for safe SUMO implementation
     summary_writer = tf.summary.FileWriter(dirs['log'])
@@ -123,16 +128,8 @@ def evaluate_fn(agent_dir, output_dir, seeds, port):
     # load model for agent
     if agent != 'greedy':
         # init centralized or multi agent
-        if env.agent == 'ia2c':
-            model = IA2C(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                         0, config['MODEL_CONFIG'])
-        elif env.agent == 'ia2c_fp':
-            model = IA2C_FP(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                            0, config['MODEL_CONFIG'])
-        elif env.agent == 'ma2c_nc':
-            model = MA2C_NC(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                            0, config['MODEL_CONFIG'])
-        else:
+        model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
+        if model is None:
             return
         if not model.load(agent_dir + '/'):
             return
