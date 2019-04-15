@@ -173,6 +173,7 @@ def lstm_comm(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mod
             hi = hi * (1-done)
             # receive neighbor messages
             mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
+            # TODO: add additional encoding layers here
             si = tf.concat([xi, mi], axis=1)
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
@@ -313,7 +314,7 @@ class OnPolicyBuffer(TransBuffer):
         if self.alpha < 0:
             self._add_R_Adv(R)
         else:
-            self._add_st_R_Adv(R, dt)
+            self._add_s_R_Adv(R)
         obs = np.array(self.obs, dtype=np.float32)
         nas = np.array(self.adds, dtype=np.int32)
         acts = np.array(self.acts, dtype=np.int32)
@@ -370,7 +371,7 @@ class OnPolicyBuffer(TransBuffer):
             # additional spatial rewards
             for t in range(self.max_distance + 1):
                 rt = np.sum(r[self.distance_mask == t])
-                R += (self.alpha) ** t * rt
+                R += (self.alpha ** t) * rt
             Adv = R - v
             Rs.append(R)
             Advs.append(Adv)
@@ -388,7 +389,7 @@ class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
         if self.alpha < 0:
             self._add_R_Adv(R)
         else:
-            self._add_st_R_Adv(R, dt)
+            self._add_s_R_Adv(R)
         obs = np.transpose(np.array(self.obs, dtype=np.float32), (1, 0, 2))
         policies = np.transpose(np.array(self.adds, dtype=np.float32), (1, 0, 2))
         acts = np.transpose(np.array(self.acts, dtype=np.int32))
@@ -440,6 +441,32 @@ class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
                     cur_R += (self.gamma * self.alpha) ** t * rt
                 cur_Adv = cur_R - v
                 tdiff += 1
+                cur_Rs.append(cur_R)
+                cur_Advs.append(cur_Adv)
+            cur_Rs.reverse()
+            cur_Advs.reverse()
+            Rs.append(cur_Rs)
+            Advs.append(cur_Advs)
+        self.Rs = np.array(Rs)
+        self.Advs = np.array(Advs)
+
+    def _add_s_R_Adv(self, R):
+        Rs = []
+        Advs = []
+        vs = np.array(self.vs)
+        for i in range(vs.shape[1]):
+            cur_Rs = []
+            cur_Advs = []
+            cur_R = R[i]
+            distance_mask = self.distance_mask[i]
+            max_distance = self.max_distance[i]
+            for r, v, done in zip(self.rs[::-1], vs[::-1,i], self.dones[:0:-1]):
+                cur_R = self.gamma * cur_R * (1.-done)
+                # additional spatial rewards
+                for t in range(max_distance + 1):
+                    rt = np.sum(r[distance_mask==t])
+                    cur_R += (self.alpha ** t) * rt
+                cur_Adv = cur_R - v
                 cur_Rs.append(cur_R)
                 cur_Advs.append(cur_Adv)
             cur_Rs.reverse()
