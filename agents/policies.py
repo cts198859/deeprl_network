@@ -218,7 +218,7 @@ class NCMultiAgentPolicy(Policy):
             policy = self.policy_bw
             action = self.action_bw
             done = self.done_bw
-        h, new_states = lstm_comm(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
+        h, new_states = lstm_comm_new(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
         pi_ls = []
         v_ls = []
         for i in range(self.n_agent):
