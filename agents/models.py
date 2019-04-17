@@ -5,7 +5,7 @@ IA2C and MA2C algorithms
 
 import os
 from agents.utils import OnPolicyBuffer, MultiAgentOnPolicyBuffer, Scheduler
-from agents.policies import LstmPolicy, NCMultiAgentPolicy, IC3MultiAgentPolicy
+from agents.policies import LstmPolicy, FPPolicy, NCMultiAgentPolicy, IC3MultiAgentPolicy
 import logging
 import numpy as np
 import tensorflow as tf
@@ -155,8 +155,8 @@ class IA2C_FP(IA2C):
             n_n = np.sum(self.neighbor_mask[i])
             # neighborhood policies are included in local state
             n_s1 = self.n_s_ls[i] + self.n_a*n_n
-            policy.append(LstmPolicy(n_s1, self.n_a, n_n, self.n_step, n_fc=self.n_fc,
-                                     n_lstm=self.n_lstm, name='%d' % i))
+            policy.append(FPPolicy(n_s1, self.n_a, n_n, self.n_step, n_fc=self.n_fc,
+                                   n_lstm=self.n_lstm, name='%d' % i))
         return policy
 
 

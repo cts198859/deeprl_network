@@ -137,6 +137,29 @@ class LstmPolicy(Policy):
         self.states_bw = np.zeros(self.n_lstm * 2, dtype=np.float32)
 
 
+class FPPolicy(LstmPolicy):
+    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None):
+        super().__init__(n_s, n_a, n_n, n_step, n_fc, n_lstm, name)
+
+    def _build_net(self, in_type):
+        if in_type == 'forward':
+            ob = self.ob_fw
+            done = self.done_fw
+            naction = self.naction_fw
+        else:
+            ob = self.ob_bw
+            done = self.done_bw
+            naction = self.naction_bw
+        n_x = self.n_s - self.n_n * self.n_a
+        hx = fc(ob[:,:n_x], 'fcs', self.n_fc)
+        hp = fc(ob[:,n_x:], 'fcp', self.n_fc)
+        h = tf.concat([hx, hp], axis=1)
+        h, new_states = lstm(h, done, self.states, 'lstm')
+        pi = self._build_actor_head(h)
+        v = self._build_critic_head(h, naction)
+        return tf.squeeze(pi), tf.squeeze(v), new_states
+
+
 class NCMultiAgentPolicy(Policy):
     """ Inplemented as a centralized agent. To simplify the implementation, all input
     and output dimensions are identical among all agents, and invalid values are casted as
@@ -256,6 +279,23 @@ class NCMultiAgentPolicy(Policy):
         self.states_bw = np.zeros((self.n_agent, self.n_h * 2), dtype=np.float32)
 
 
+class ConsensusPolicy(NCMultiAgentPolicy):
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_h=64):
+        Policy.__init__(self, n_a, n_s, n_step, 'cu', None)
+        self._init_policy(n_agent, neighbor_mask, n_h)
+
+    def _build_net(self, in_type):
+        if in_type == 'forward':
+            ob = self.ob_fw
+            action = self.action_fw
+            done = self.done_fw
+        else:
+            ob = self.ob_bw
+            action = self.action_bw
+            done = self.done_bw
+
+
+
 class IC3MultiAgentPolicy(NCMultiAgentPolicy):
     """Reference code: https://github.com/IC3Net/IC3Net/blob/master/comm.py.
        Note in IC3, the message is generated from hidden state only, so current state
@@ -285,4 +325,6 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
             pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
         return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
+
+
 
