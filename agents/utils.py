@@ -208,9 +208,10 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
     wx_hid = []
     wh_hid = []
     b_hid = []
+    n_in_hid = 3*n_h
     for i in range(n_agent):
-        n_m = np.sum(masks[i])
-        n_in_hid = (n_m+1)*n_h
+        # n_m = np.sum(masks[i])
+        # n_in_hid = (n_m+1)*n_h
         with tf.variable_scope(scope + ('_%d' % i)):
             wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
                                           initializer=init_method(init_scale, init_mode)))
@@ -222,22 +223,23 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
     # loop over steps
     for t, (x, p, done) in enumerate(zip(xs, ps, dones)):
         # abuse 1 agent as 1 step
-        x = batch_to_seq(tf.squeeze(x, axis=0))
-        p = batch_to_seq(tf.squeeze(p, axis=0))
+        # x = batch_to_seq(tf.squeeze(x, axis=0))
+        # p = batch_to_seq(tf.squeeze(p, axis=0))
         out_h = []
         out_c = []
-        out_m = []
+        # out_m = []
         # communication phase
-        for i, (xi, pi) in enumerate(zip(x, p)):
-            hi = tf.expand_dims(h[i], axis=0)
-            hxi = fc(xi, 'mfc_s_%d' % i, n_h, act=tf.nn.tanh)
-            hpi = fc(pi, 'mfc_p_%d' % i, n_h, act=tf.nn.tanh)
-            si = tf.concat([hi, hxi, hpi], axis=1)
-            mi = fc(si, 'mfc_%d' % i, n_h)
-            out_m.append(mi)
+        # for i in range(n_agent):
+            # hi = tf.expand_dims(h[i], axis=0)
+            # hxi = fc(xi, 'mfc_s_%d' % i, n_h, act=tf.nn.tanh)
+            # hpi = fc(pi, 'mfc_p_%d' % i, n_h, act=tf.nn.tanh)
+            # si = tf.concat([hi, hxi, hpi], axis=1)
+            # mi = fc(hi, 'mfc_%d' % i, n_h)
+            # out_m.append(mi)
+        out_m = [tf.expand_dims(h[i], axis=0) for i in range(n_agent)]
         out_m = tf.concat(out_m, axis=0) # Nxn_h
         # hidden phase
-        for i, xi in enumerate(x):
+        for i in range(n_agent):
             ci = tf.expand_dims(c[i], axis=0)
             hi = tf.expand_dims(h[i], axis=0)
             # reset states for a new episode
@@ -245,8 +247,13 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
             hi = hi * (1-done)
             # receive neighbor messages
             mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
-            hxi = fc(xi, 'hfc_s_%d' % i, n_h)
-            si = tf.concat([hxi, mi], axis=1)
+            pi = tf.expand_dims(tf.reshape(tf.boolean_mask(p, masks[i]), [-1]), axis=0)
+            xi = tf.expand_dims(tf.reshape(tf.boolean_mask(x, masks[i]), [-1]), axis=0)
+            xi = tf.concat([tf.expand_dims(x[i], axis=0), xi], axis=1)
+            hpi = fc(pi, 'hfc_p_%d' % i, n_h, act=tf.nn.tanh)
+            hxi = fc(xi, 'hfc_s_%d' % i, n_h, act=tf.nn.tanh)
+            hmi = fc(mi, 'hfc_m_%d' % i, n_h, act=tf.nn.tanh)
+            si = tf.concat([hxi, hpi, hmi], axis=1)
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
             ii = tf.nn.sigmoid(ii)
