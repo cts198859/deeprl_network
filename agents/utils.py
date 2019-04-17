@@ -198,6 +198,8 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
                   init_method=DEFAULT_METHOD):
     n_agent = s.shape[0]
     n_h = s.shape[1] // 2
+    n_s = xs.shape[-1]
+    n_a = ps.shape[-1]
     xs = tf.transpose(xs, perm=[1,0,2]) # TxNxn_s
     xs = batch_to_seq(xs)
     ps = tf.transpose(ps, perm=[1,0,2]) # TxNxn_a
@@ -205,14 +207,32 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
     # need dones to reset states
     dones = batch_to_seq(dones) # Tx1
     # create wts
+    w_msg = []
+    b_msg = []
+    w_ob = []
+    b_ob = []
+    w_fp = []
+    b_fp = []
     wx_hid = []
     wh_hid = []
     b_hid = []
     n_in_hid = 3*n_h
     for i in range(n_agent):
-        # n_m = np.sum(masks[i])
+        n_m = np.sum(masks[i])
         # n_in_hid = (n_m+1)*n_h
         with tf.variable_scope(scope + ('_%d' % i)):
+            w_msg.append(tf.get_variable("w_msg", [n_h*n_m, n_h],
+                                         initializer=init_method(init_scale, init_mode)))
+            b_msg.append(tf.get_variable("b_msg", [n_h],
+                                         initializer=tf.constant_initializer(0.0)))
+            w_ob.append(tf.get_variable("w_ob", [n_s*(n_m+1), n_h],
+                                        initializer=init_method(init_scale, init_mode)))
+            b_ob.append(tf.get_variable("b_ob", [n_h],
+                                        initializer=tf.constant_initializer(0.0)))
+            w_fp.append(tf.get_variable("w_ob", [n_a*n_m, n_h],
+                                        initializer=init_method(init_scale, init_mode)))
+            b_fp.append(tf.get_variable("b_ob", [n_h],
+                                        initializer=tf.constant_initializer(0.0)))
             wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
                                           initializer=init_method(init_scale, init_mode)))
             wh_hid.append(tf.get_variable("wh_hid", [n_h, n_h*4],
@@ -223,6 +243,8 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
     # loop over steps
     for t, (x, p, done) in enumerate(zip(xs, ps, dones)):
         # abuse 1 agent as 1 step
+        x = tf.squeeze(x, axis=0)
+        p = tf.squeeze(p, axis=0)
         # x = batch_to_seq(tf.squeeze(x, axis=0))
         # p = batch_to_seq(tf.squeeze(p, axis=0))
         out_h = []
@@ -250,9 +272,9 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
             pi = tf.expand_dims(tf.reshape(tf.boolean_mask(p, masks[i]), [-1]), axis=0)
             xi = tf.expand_dims(tf.reshape(tf.boolean_mask(x, masks[i]), [-1]), axis=0)
             xi = tf.concat([tf.expand_dims(x[i], axis=0), xi], axis=1)
-            hpi = fc(pi, 'hfc_p_%d' % i, n_h, act=tf.nn.tanh)
-            hxi = fc(xi, 'hfc_s_%d' % i, n_h, act=tf.nn.tanh)
-            hmi = fc(mi, 'hfc_m_%d' % i, n_h, act=tf.nn.tanh)
+            hxi = tf.nn.tanh(tf.matmul(xi, w_ob[i]) + b_ob[i])
+            hpi = tf.nn.tanh(tf.matmul(pi, w_fp[i]) + b_fp[i])
+            hmi = tf.nn.tanh(tf.matmul(mi, w_msg[i]) + b_msg[i])
             si = tf.concat([hxi, hpi, hmi], axis=1)
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
