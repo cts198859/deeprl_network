@@ -150,7 +150,7 @@ class FPPolicy(LstmPolicy):
             ob = self.ob_bw
             done = self.done_bw
             naction = self.naction_bw
-        n_x = self.n_s - self.n_n * self.n_a
+        n_x = int(self.n_s - self.n_n * self.n_a)
         hx = fc(ob[:,:n_x], 'fcs', self.n_fc)
         hp = fc(ob[:,n_x:], 'fcp', self.n_fc)
         h = tf.concat([hx, hp], axis=1)
@@ -280,20 +280,78 @@ class NCMultiAgentPolicy(Policy):
 
 
 class ConsensusPolicy(NCMultiAgentPolicy):
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_h=64):
-        Policy.__init__(self, n_a, n_s, n_step, 'cu', None)
-        self._init_policy(n_agent, neighbor_mask, n_h)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
+        Policy.__init__(n_a, n_s, n_step, 'cu', None)
+        self.n_agent = n_agent
+        self.n_h = n_h
+        self.neighbor_mask = neighbor_mask
+        self._init_policy()
+
+    def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
+                 summary_writer=None, global_step=None):
+        super().backward(sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
+                         summary_writer, global_step)
+        sess.run(self._consensus_update)
+
+    def prepare_loss(self, v_coef, e_coef, max_grad_norm, alpha, epsilon):
+        super().prepare_loss(v_coef, e_coef, max_grad_norm, alpha, epsilon)
+        consensus_update = []
+        for i in range(self.n_agent):
+            wt_from, wt_to = self._get_critic_wts(i)
+            consensus_update.append(wt_to.assign(wt_from))
+        self._consensus_update = tf.group(*consensus_update)
 
     def _build_net(self, in_type):
         if in_type == 'forward':
             ob = self.ob_fw
-            action = self.action_fw
             done = self.done_fw
+            action = self.action_fw
         else:
-            ob = self.ob_bw
-            action = self.action_bw
+            ob = self.ob_bw[agent_i]
             done = self.done_bw
+            action = self.action_bw
+        pi_ls = []
+        v_ls = []
+        new_states_ls = []
+        for i in range(self.n_agent):
+            h = fc(ob[i], 'fc', self.n_h)
+            h, new_states = lstm(h, done, self.states[i], 'lstm_%d' % i)
+            pi = self._build_actor_head(h, agent_name='%d' % i)
+            naction = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i]))
+            v = self._build_critic_head(h, naction, agent_name='%d' % i)
+            pi_ls.append(tf.expand_dims(pi, axis=0))
+            v_ls.append(tf.expand_dims(v, axis=0))
+            new_states_ls.append(tf.expand_dims(new_states, axis=0))
+        pi_ls = tf.squeeze(tf.concat(pi_ls, axis=0))
+        v_ls = tf.squeeze(tf.concat(v_ls, axis=0))
+        new_states_ls = tf.squeeze(tf.concat(new_states_ls, axis=0))
+        return pi_ls, v_ls, new_states_ls
 
+    def _get_critic_wts(self, agent_i):
+        neighbor_mask = self.neighbor_mask[agent_i]
+        agents = [agent_i] + list(np.where(neighbor_mask == 1))
+        wt_i = []
+        wt_n = []
+        for i in agents:
+            critic_scope = [self.name + ('/lstm_%d' % i),
+                            self.name + ('/v_%d' % i)]
+            wt = []
+            for scope in critic_scope:
+                wt += tf.trainable_variables(scope=scope)
+            if i == agent_i:
+                wt_i = wt
+            wt_n.append(wt)
+        mean_wt_n = []
+        n_n = len(wt_n)
+        n_w = len(wt_n[0])
+        for i in range(n_w):
+            cur_wts = []
+            for j in range(n_n):
+                cur_wts.append(tf.expand_dims(wt_n[j][i], axis=-1))
+            cur_wts = tf.concat(cur_wts, axis=-1)
+            cur_wts = tf.reduce_mean(cur_wts, axis=-1)
+            mean_wt_n.append(cur_wts)
+        return mean_wt_n, wt_i
 
 
 class IC3MultiAgentPolicy(NCMultiAgentPolicy):

@@ -360,12 +360,11 @@ class TrafficSimulator:
             node.num_state = len(node.ilds_in)
             num_wave = node.num_state
             num_wait = 0 if 'wait' not in self.state_names else node.num_state
-            num_fp = self.n_a if self.agent == 'ia2c_fp' else 0
             if self.agent.startswith('ma2c'):
                 num_n = 1
             else:
                 num_n = 1 + len(node.neighbor)
-            n_s_ls.append(num_wait + num_wave * num_n + num_fp * (num_n - 1))
+            n_s_ls.append(num_wait + num_wave * num_n)
         if self.agent.startswith('ma2c'):
             assert len(set(n_s_ls)) == 1
             self.n_s = n_s_ls[0]

@@ -229,9 +229,9 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
                                         initializer=init_method(init_scale, init_mode)))
             b_ob.append(tf.get_variable("b_ob", [n_h],
                                         initializer=tf.constant_initializer(0.0)))
-            w_fp.append(tf.get_variable("w_ob", [n_a*n_m, n_h],
+            w_fp.append(tf.get_variable("w_fp", [n_a*n_m, n_h],
                                         initializer=init_method(init_scale, init_mode)))
-            b_fp.append(tf.get_variable("b_ob", [n_h],
+            b_fp.append(tf.get_variable("b_fp", [n_h],
                                         initializer=tf.constant_initializer(0.0)))
             wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
                                           initializer=init_method(init_scale, init_mode)))

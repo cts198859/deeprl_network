@@ -9,7 +9,7 @@ import logging
 import tensorflow as tf
 import threading
 from envs.large_grid_env import LargeGridEnv, LargeGridController
-from agents.models import IA2C, IA2C_FP, MA2C_NC, MA2C_IC3
+from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
                    init_dir, init_log, init_test_flag,
@@ -31,8 +31,6 @@ def parse_args():
     sp.add_argument('--config-dir', type=str, required=False,
                     default=default_config_dir, help="experiment config path")
     sp = subparsers.add_parser('evaluate', help="evaluate and compare agents under base dir")
-    sp.add_argument('--agents', type=str, required=False,
-                    default='naive', help="agent folder names for evaluation, split by ,")
     sp.add_argument('--evaluate-seeds', type=str, required=False,
                     default=','.join([str(i) for i in range(10000, 100001, 10000)]),
                     help="random seeds for evaluation, split by ,")
@@ -51,6 +49,7 @@ def init_env(config, port=0, naive_policy=False):
         policy = LargeGridController(env.node_names)
         return env, policy
 
+
 def init_agent(env, config, total_step, seed):
     if env.agent == 'ia2c':
         return IA2C(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
@@ -64,6 +63,9 @@ def init_agent(env, config, total_step, seed):
     elif env.agent == 'ma2c_ic3':
         return MA2C_IC3(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                         total_step, config, seed=seed)
+    elif env.agent == 'ia2c_cu':
+        return IA2C_CU(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                       total_step, config, seed=seed)
     else:
         return None
 
@@ -115,7 +117,7 @@ def evaluate_fn(agent_dir, output_dir, seeds, port):
         logging.error('Evaluation: %s does not exist!' % agent)
         return
     # load config file for env
-    config_dir = find_file(agent_dir)
+    config_dir = find_file(agent_dir + '/data/')
     if not config_dir:
         return
     config = configparser.ConfigParser()
@@ -131,7 +133,7 @@ def evaluate_fn(agent_dir, output_dir, seeds, port):
         model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
         if model is None:
             return
-        if not model.load(agent_dir + '/'):
+        if not model.load(agent_dir + '/model/'):
             return
     else:
         model = greedy_policy
@@ -145,7 +147,6 @@ def evaluate(args):
     base_dir = args.base_dir
     dirs = init_dir(base_dir, pathes=['eva_data', 'eva_log'])
     init_log(dirs['eva_log'])
-    agents = args.agents.split(',')
     # enforce the same evaluation seeds across agents
     seeds = args.evaluate_seeds
     logging.info('Evaluation: random seeds: %s' % seeds)
@@ -153,15 +154,7 @@ def evaluate(args):
         seeds = []
     else:
         seeds = [int(s) for s in seeds.split(',')]
-    threads = []
-    for i, agent in enumerate(agents):
-        agent_dir = base_dir + '/' + agent
-        thread = threading.Thread(target=evaluate_fn,
-                                  args=(agent_dir, dirs['eva_data'], seeds, i))
-        thread.start()
-        threads.append(thread)
-    for thread in threads:
-        thread.join()
+    evaluate_fn(base_dir, dirs['eva_data'], seeds, 1)
 
 
 if __name__ == '__main__':
