@@ -9,7 +9,7 @@ import logging
 import tensorflow as tf
 import threading
 from envs.large_grid_env import LargeGridEnv, LargeGridController
-from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3
+from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
                    init_dir, init_log, init_test_flag,
@@ -63,9 +63,12 @@ def init_agent(env, config, total_step, seed):
     elif env.agent == 'ma2c_ic3':
         return MA2C_IC3(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                         total_step, config, seed=seed)
-    elif env.agent == 'ia2c_cu':
+    elif env.agent == 'ma2c_cu':
         return IA2C_CU(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
+    elif env.agent == 'ma2c_dial':
+        return MA2C_DIAL(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                         total_step, config, seed=seed)
     else:
         return None
 

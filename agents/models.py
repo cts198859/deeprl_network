@@ -5,7 +5,8 @@ IA2C and MA2C algorithms
 
 import os
 from agents.utils import OnPolicyBuffer, MultiAgentOnPolicyBuffer, Scheduler
-from agents.policies import LstmPolicy, FPPolicy, ConsensusPolicy, NCMultiAgentPolicy, IC3MultiAgentPolicy
+from agents.policies import (LstmPolicy, FPPolicy, ConsensusPolicy, NCMultiAgentPolicy,
+                             IC3MultiAgentPolicy, DIALMultiAgentPolicy)
 import logging
 import numpy as np
 import tensorflow as tf
@@ -205,7 +206,7 @@ class MA2C_NC(IA2C):
 class IA2C_CU(MA2C_NC):
     def __init__(self, n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
                  total_step, model_config, seed=0):
-        self.name = 'ia2c_cu'
+        self.name = 'ma2c_cu'
         self._init_algo(n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
                         total_step, seed, model_config)
 
@@ -226,3 +227,13 @@ class MA2C_IC3(MA2C_NC):
                                    self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
 
 
+class MA2C_DIAL(MA2C_NC):
+    def __init__(self, n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
+                 total_step, model_config, seed=0):
+        self.name = 'ma2c_dial'
+        self._init_algo(n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
+                        total_step, seed, model_config)
+
+    def _init_policy(self):
+        return DIALMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                    self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)

@@ -281,11 +281,11 @@ class NCMultiAgentPolicy(Policy):
 
 class ConsensusPolicy(NCMultiAgentPolicy):
     def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        Policy.__init__(n_a, n_s, n_step, 'cu', None)
+        Policy.__init__(self, n_a, n_s, n_step, 'cu', None)
         self.n_agent = n_agent
         self.n_h = n_h
         self.neighbor_mask = neighbor_mask
-        self._init_policy()
+        self._init_policy(n_agent, neighbor_mask, n_h)
 
     def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
                  summary_writer=None, global_step=None):
@@ -298,7 +298,8 @@ class ConsensusPolicy(NCMultiAgentPolicy):
         consensus_update = []
         for i in range(self.n_agent):
             wt_from, wt_to = self._get_critic_wts(i)
-            consensus_update.append(wt_to.assign(wt_from))
+            for w1, w2 in zip(wt_from, wt_to):
+                consensus_update.append(w2.assign(w1))
         self._consensus_update = tf.group(*consensus_update)
 
     def _build_net(self, in_type):
@@ -307,18 +308,18 @@ class ConsensusPolicy(NCMultiAgentPolicy):
             done = self.done_fw
             action = self.action_fw
         else:
-            ob = self.ob_bw[agent_i]
+            ob = self.ob_bw
             done = self.done_bw
             action = self.action_bw
         pi_ls = []
         v_ls = []
         new_states_ls = []
         for i in range(self.n_agent):
-            h = fc(ob[i], 'fc', self.n_h)
+            h = fc(ob[i], 'fc_%d' % i, self.n_h)
             h, new_states = lstm(h, done, self.states[i], 'lstm_%d' % i)
             pi = self._build_actor_head(h, agent_name='%d' % i)
             naction = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i]))
-            v = self._build_critic_head(h, naction, agent_name='%d' % i)
+            v = self._build_critic_head(h, naction, n_n=int(np.sum(self.neighbor_mask[i])), agent_name='%d' % i)
             pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
             new_states_ls.append(tf.expand_dims(new_states, axis=0))
@@ -329,12 +330,11 @@ class ConsensusPolicy(NCMultiAgentPolicy):
 
     def _get_critic_wts(self, agent_i):
         neighbor_mask = self.neighbor_mask[agent_i]
-        agents = [agent_i] + list(np.where(neighbor_mask == 1))
+        agents = [agent_i] + list(np.where(neighbor_mask == 1)[0])
         wt_i = []
         wt_n = []
         for i in agents:
-            critic_scope = [self.name + ('/lstm_%d' % i),
-                            self.name + ('/v_%d' % i)]
+            critic_scope = [self.name + ('/lstm_%d' % i)]
             wt = []
             for scope in critic_scope:
                 wt += tf.trainable_variables(scope=scope)
@@ -385,4 +385,32 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
         return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 
 
+class DIALMultiAgentPolicy(NCMultiAgentPolicy):
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
+        Policy.__init__(self, n_a, n_s, n_step, 'dial', None)
+        self._init_policy(n_agent, neighbor_mask, n_h)
+
+    def _build_net(self, in_type):
+        if in_type == 'forward':
+            ob = self.ob_fw
+            policy = self.policy_fw
+            action = self.action_fw
+            done = self.done_fw
+        else:
+            ob = self.ob_bw
+            policy = self.policy_bw
+            action = self.action_bw
+            done = self.done_bw
+        h, new_states = lstm_dial(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
+        pi_ls = []
+        v_ls = []
+        for i in range(self.n_agent):
+            h_i = h[i] # Txn_h
+            naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
+            pi = self._build_actor_head(h_i, agent_name='%d' % i)
+            v = self._build_critic_head(h_i, naction_i, n_n=int(np.sum(self.neighbor_mask[i])),
+                                        agent_name='%d' % i)
+            pi_ls.append(tf.expand_dims(pi, axis=0))
+            v_ls.append(tf.expand_dims(v, axis=0))
+        return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 
