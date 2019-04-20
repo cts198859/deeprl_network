@@ -9,7 +9,7 @@ Available IA2C algorithms:
 
 
 Available MA2C algorithms:
-* DIAL: [Raileanu, Roberta, et al. "Modeling Others using Oneself in Multi-Agent Reinforcement Learning." arXiv preprint arXiv:1802.09640, 2018.](https://arxiv.org/pdf/1802.09640.pdf)
+* DIAL: [Foerster, Jakob, et al. "Learning to communicate with deep multi-agent reinforcement learning." Advances in Neural Information Processing Systems. 2016.](http://papers.nips.cc/paper/6042-learning-to-communicate-with-deep-multi-agent-reinforcement-learning.pdf)
 * CommNet: [Sukhbaatar, Sainbayar, et al. "Learning multiagent communication with backpropagation." Advances in Neural Information Processing Systems, 2016.](https://arxiv.org/pdf/1605.07736.pdf)
 * NeurComm: [Gilmer, Justin, et al. "Neural message passing for quantum chemistry." arXiv preprint arXiv:1704.01212, 2017.](https://arxiv.org/pdf/1704.01212.pdf)
 
