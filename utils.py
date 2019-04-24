@@ -194,7 +194,9 @@ class Trainer():
             if self.agent == 'greedy':
                 action = self.model.forward(ob)
             else:
-                policy, action = self._get_policy(ob, False, mode='test')
+                # in on-policy learning, test policy has to be stochastic
+                # policy, action = self._get_policy(ob, False, mode='test')
+                policy, action = self._get_policy(ob, False)
                 self.env.update_fingerprint(policy)
             next_ob, reward, done, global_reward = self.env.step(action)
             rewards.append(global_reward)

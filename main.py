@@ -32,7 +32,7 @@ def parse_args():
                     default=default_config_dir, help="experiment config path")
     sp = subparsers.add_parser('evaluate', help="evaluate and compare agents under base dir")
     sp.add_argument('--evaluate-seeds', type=str, required=False,
-                    default=','.join([str(i) for i in range(10000, 100001, 10000)]),
+                    default=','.join([str(i) for i in range(2000, 2500, 10)]),
                     help="random seeds for evaluation, split by ,")
     args = parser.parse_args()
     if not args.option:
@@ -140,7 +140,6 @@ def evaluate_fn(agent_dir, output_dir, seeds, port):
             return
     else:
         model = greedy_policy
-    env.agent = agent
     # collect evaluation data
     evaluator = Evaluator(env, model, output_dir)
     evaluator.run()
