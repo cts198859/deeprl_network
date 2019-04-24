@@ -114,8 +114,8 @@ class TrafficSimulator:
             cur_dict['depart_sec'] = cur_trip['depart']
             cur_dict['arrival_sec'] = cur_trip['arrival']
             cur_dict['duration_sec'] = cur_trip['duration']
-            cur_dict['wait_step'] = cur_trip['waitSteps']
-            cur_dict['wait_sec'] = cur_trip['timeLoss']
+            cur_dict['wait_step'] = cur_trip['waitingCount']
+            cur_dict['wait_sec'] = cur_trip['waitingTime']
             self.trip_data.append(cur_dict)
         # delete the current xml
         cmd = 'rm ' + trip_file
