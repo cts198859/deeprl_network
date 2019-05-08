@@ -211,8 +211,8 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
     b_msg = []
     w_ob = []
     b_ob = []
-    # w_fp = []
-    # b_fp = []
+    w_fp = []
+    b_fp = []
     wx_hid = []
     wh_hid = []
     b_hid = []
@@ -229,10 +229,10 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
                                         initializer=init_method(init_scale, init_mode)))
             b_ob.append(tf.get_variable("b_ob", [n_h],
                                         initializer=tf.constant_initializer(0.0)))
-            # w_fp.append(tf.get_variable("w_fp", [n_a*n_m, n_h],
-                                        # initializer=init_method(init_scale, init_mode)))
-            # b_fp.append(tf.get_variable("b_fp", [n_h],
-                                        # initializer=tf.constant_initializer(0.0)))
+            w_fp.append(tf.get_variable("w_fp", [n_a*n_m, n_h],
+                                        initializer=init_method(init_scale, init_mode)))
+            b_fp.append(tf.get_variable("b_fp", [n_h],
+                                        initializer=tf.constant_initializer(0.0)))
             wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
                                           initializer=init_method(init_scale, init_mode)))
             wh_hid.append(tf.get_variable("wh_hid", [n_h, n_h*4],
@@ -251,14 +251,14 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
         out_c = []
         out_m = []
         # communication phase
-        for i in range(n_agent):
-            hi = tf.expand_dims(h[i], axis=0)
+        # for i in range(n_agent):
+            # hi = tf.expand_dims(h[i], axis=0)
             # hxi = fc(xi, 'mfc_s_%d' % i, n_h, act=tf.nn.tanh)
             # hpi = fc(pi, 'mfc_p_%d' % i, n_h, act=tf.nn.tanh)
             # si = tf.concat([hi, hxi, hpi], axis=1)
-            mi = fc(hi, 'mfc_%d' % i, n_h)
-            out_m.append(mi)
-        # out_m = [tf.expand_dims(h[i], axis=0) for i in range(n_agent)]
+            # mi = fc(hi, 'mfc_%d' % i, n_h)
+            # out_m.append(mi)
+        out_m = [tf.expand_dims(h[i], axis=0) for i in range(n_agent)]
         out_m = tf.concat(out_m, axis=0) # Nxn_h
         # hidden phase
         for i in range(n_agent):
@@ -269,14 +269,14 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
             hi = hi * (1-done)
             # receive neighbor messages
             mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
-            # pi = tf.expand_dims(tf.reshape(tf.boolean_mask(p, masks[i]), [-1]), axis=0)
+            pi = tf.expand_dims(tf.reshape(tf.boolean_mask(p, masks[i]), [-1]), axis=0)
             xi = tf.expand_dims(tf.reshape(tf.boolean_mask(x, masks[i]), [-1]), axis=0)
             xi = tf.concat([tf.expand_dims(x[i], axis=0), xi], axis=1)
             hxi = tf.nn.relu(tf.matmul(xi, w_ob[i]) + b_ob[i])
-            # hpi = tf.nn.relu(tf.matmul(pi, w_fp[i]) + b_fp[i])
-            hmi = tf.matmul(mi, w_msg[i]) + b_msg[i]
-            # si = tf.concat([hxi, hpi, hmi], axis=1)
-            si = tf.concat([hxi, hmi], axis=1)
+            hpi = tf.nn.relu(tf.matmul(pi, w_fp[i]) + b_fp[i])
+            hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
+            si = tf.concat([hxi, hpi, hmi], axis=1)
+            # si = tf.concat([hxi, hmi], axis=1)
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
             ii = tf.nn.sigmoid(ii)

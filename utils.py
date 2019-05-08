@@ -187,8 +187,8 @@ class Trainer():
             R = self._get_value(ob, done, action)
         return ob, done, R, rewards
 
-    def perform(self, test_ind):
-        ob = self.env.reset(test_ind=test_ind)
+    def perform(self, test_ind, gui=False):
+        ob = self.env.reset(gui=gui, test_ind=test_ind)
         rewards = []
         while True:
             if self.agent == 'greedy':
@@ -333,22 +333,26 @@ class Tester(Trainer):
 
 
 class Evaluator(Tester):
-    def __init__(self, env, model, output_path):
+    def __init__(self, env, model, output_path, gui=False):
         self.env = env
         self.model = model
         self.agent = self.env.agent
         self.env.train_mode = False
         self.test_num = self.env.test_num
         self.output_path = output_path
+        self.gui = gui
 
     def run(self):
-        is_record = True
+        if self.gui:
+            is_record = False
+        else:
+            is_record = True
         record_stats = False
         self.env.cur_episode = 0
         self.env.init_data(is_record, record_stats, self.output_path)
         time.sleep(1)
         for test_ind in range(self.test_num):
-            reward, _ = self.perform(test_ind)
+            reward, _ = self.perform(test_ind, gui=self.gui)
             self.env.terminate()
             logging.info('test %i, avg reward %.2f' % (test_ind, reward))
             time.sleep(2)

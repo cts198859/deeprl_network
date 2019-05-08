@@ -17,7 +17,7 @@ from utils import (Counter, Trainer, Tester, Evaluator,
 
 
 def parse_args():
-    default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ma2c_ic3_test'
+    default_base_dir = './data/models/ia2c_fp'
     default_config_dir = './config/config_ma2c_ic3.ini'
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-dir', type=str, required=False,
@@ -34,6 +34,7 @@ def parse_args():
     sp.add_argument('--evaluate-seeds', type=str, required=False,
                     default=','.join([str(i) for i in range(2000, 2500, 10)]),
                     help="random seeds for evaluation, split by ,")
+    sp.add_argument('--demo', action='store_true', help="shows SUMO gui")
     args = parser.parse_args()
     if not args.option:
         parser.print_help()
@@ -114,13 +115,16 @@ def train(args):
         evaluator.run()
 
 
-def evaluate_fn(agent_dir, output_dir, seeds, port):
+def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
     agent = agent_dir.split('/')[-1]
     if not check_dir(agent_dir):
         logging.error('Evaluation: %s does not exist!' % agent)
         return
-    # load config file for env
-    config_dir = find_file(agent_dir + '/data/')
+    if not demo:
+        # load config file for env
+        config_dir = find_file(agent_dir + '/data/')
+    else:
+        config_dir = find_file(agent_dir + '/')
     if not config_dir:
         return
     config = configparser.ConfigParser()
@@ -136,19 +140,27 @@ def evaluate_fn(agent_dir, output_dir, seeds, port):
         model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
         if model is None:
             return
-        if not model.load(agent_dir + '/model/'):
+        if not demo:
+            model_dir = agent_dir + '/model/'
+        else:
+            model_dir = agent_dir + '/'
+        if not model.load(model_dir):
             return
     else:
         model = greedy_policy
     # collect evaluation data
-    evaluator = Evaluator(env, model, output_dir)
+    evaluator = Evaluator(env, model, output_dir, gui=demo)
     evaluator.run()
 
 
 def evaluate(args):
     base_dir = args.base_dir
-    dirs = init_dir(base_dir, pathes=['eva_data', 'eva_log'])
-    init_log(dirs['eva_log'])
+    if not args.demo:
+        dirs = init_dir(base_dir, pathes=['eva_data', 'eva_log'])
+        init_log(dirs['eva_log'])
+        output_dir = dirs['eva_data']
+    else:
+        output_dir = None
     # enforce the same evaluation seeds across agents
     seeds = args.evaluate_seeds
     logging.info('Evaluation: random seeds: %s' % seeds)
@@ -156,7 +168,7 @@ def evaluate(args):
         seeds = []
     else:
         seeds = [int(s) for s in seeds.split(',')]
-    evaluate_fn(base_dir, dirs['eva_data'], seeds, 1)
+    evaluate_fn(base_dir, output_dir, seeds, 1, args.demo)
 
 
 if __name__ == '__main__':
