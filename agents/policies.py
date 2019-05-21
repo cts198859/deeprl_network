@@ -72,7 +72,7 @@ class Policy:
             pi = fc(h, name, self.n_a, act=tf.nn.softmax)
         else:
             pi_mu = fc(h, name + '_mu', self.n_a, act=tf.nn.tanh)
-            pi_sigma = fc(h, name + '_sigma', self.n_a, act=tf.nn.tanh) + 1 + 1e-3
+            pi_sigma = tf.sqrt(fc(h, name + '_sigma', self.n_a, act=tf.nn.softplus) + 1e-4)
             pi = tf.concat([pi_mu, pi_sigma], axis=-1)
         return pi
 
