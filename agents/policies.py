@@ -100,10 +100,15 @@ class LstmPolicy(Policy):
         self.n_fc = n_fc
         self.n_n = n_n
         self.ob_fw = tf.placeholder(tf.float32, [1, n_s]) # forward 1-step
-        self.naction_fw = tf.placeholder(tf.int32, [1, n_n])
+        if self.discrete_control:
+            self.naction_fw = tf.placeholder(tf.int32, [1, n_n])
+            self.naction_bw = tf.placeholder(tf.int32, [n_step, n_n])
+        else:
+            self.naction_fw = tf.placeholder(tf.float32, [1, n_n])
+            self.naction_bw = tf.placeholder(tf.float32, [n_step, n_n])
         self.done_fw = tf.placeholder(tf.float32, [1])
         self.ob_bw = tf.placeholder(tf.float32, [n_step, n_s]) # backward n-step
-        self.naction_bw = tf.placeholder(tf.int32, [n_step, n_n])
+        
         self.done_bw = tf.placeholder(tf.float32, [n_step])
         self.states = tf.placeholder(tf.float32, [n_lstm * 2])
         with tf.variable_scope(self.name):
