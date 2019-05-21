@@ -138,9 +138,15 @@ class Trainer():
         action = []
         for pi in policy:
             if mode == 'train':
-                action.append(np.random.choice(np.arange(len(pi)), p=pi))
+                if self.model.discrete_control:
+                    action.append(np.random.choice(np.arange(len(pi)), p=pi))
+                else:
+                    action.append(np.clip(pi[0] + pi[1] * np.random.randn(), -1, 1))
             else:
-                action.append(np.argmax(pi))
+                if self.model.discrete_control:
+                    action.append(np.argmax(pi))
+                else:
+                    action.append(pi[0])
         return policy, np.array(action)
 
     def _get_value(self, ob, done, action):
@@ -151,7 +157,20 @@ class Trainer():
             value = self.model.forward(ob, done, self.naction, 'v')
         return value
 
-    def explore(self, prev_ob, prev_done):
+    def _log_episode(self, global_step, rewards):
+        rewards = np.array(rewards)
+        mean_reward = np.mean(rewards)
+        std_reward = np.std(rewards)
+        log = {'agent': self.agent,
+               'step': global_step,
+               'test_id': -1,
+               'avg_reward': mean_reward,
+               'std_reward': std_reward}
+        self.data.append(log)
+        self._add_summary(mean_reward, global_step)
+        self.summary_writer.flush()
+
+    def explore(self, prev_ob, prev_done, prev_rewards):
         ob = prev_ob
         done = prev_done
         rewards = []
@@ -178,14 +197,21 @@ class Trainer():
                              (global_step, self.cur_step,
                               str(ob), str(action), str(policy), global_reward, np.mean(reward), done))
             if done:
-                break
-            ob = next_ob
+                if self.env.name == 'large_grid':
+                    self.env.terminate()
+                self._log_episode(global_step, prev_rewards + rewards)
+                prev_rewards = []
+                rewards = []
+                ob = self.env.reset()
+                self.cur_step = 0
+            else:
+                ob = next_ob
         if done:
             R = np.zeros(self.model.n_agent)
         else:
             _, action = self._get_policy(ob, done)
             R = self._get_value(ob, done, action)
-        return ob, done, R, rewards
+        return ob, done, R, prev_rewards + rewards
 
     def perform(self, test_ind, gui=False):
         ob = self.env.reset(gui=gui, test_ind=test_ind)
@@ -227,6 +253,10 @@ class Trainer():
                 return
 
     def run(self):
+        ob = self.env.reset()
+        done = False
+        self.cur_step = 0
+        rewards = []
         while not self.global_counter.should_stop():
             # test
             if self.run_test and self.global_counter.should_test():
@@ -235,7 +265,8 @@ class Trainer():
                 self.env.train_mode = False
                 for test_ind in range(self.test_num):
                     mean_reward, std_reward = self.perform(test_ind)
-                    self.env.terminate()
+                    if self.env.name == 'large_grid':
+                        self.env.terminate()
                     rewards.append(mean_reward)
                     log = {'agent': self.agent,
                            'step': global_step,
@@ -249,31 +280,10 @@ class Trainer():
                              (global_step, avg_reward))
             # train
             self.env.train_mode = True
-            ob = self.env.reset()
-            done = False
-            self.cur_step = 0
-            rewards = []
-            while True:
-                ob, done, R, cur_rewards = self.explore(ob, done)
-                dt = self.env.T - self.cur_step
-                rewards += cur_rewards
-                global_step = self.global_counter.cur_step
-                self.model.backward(R, dt, self.summary_writer, global_step)
-                # termination
-                if done:
-                    self.env.terminate()
-                    break
-            rewards = np.array(rewards)
-            mean_reward = np.mean(rewards)
-            std_reward = np.std(rewards)
-            log = {'agent': self.agent,
-                   'step': global_step,
-                   'test_id': -1,
-                   'avg_reward': mean_reward,
-                   'std_reward': std_reward}
-            self.data.append(log)
-            self._add_summary(mean_reward, global_step)
-            self.summary_writer.flush()
+            ob, done, R, rewards = self.explore(ob, done, rewards)
+            dt = self.env.T - self.cur_step
+            global_step = self.global_counter.cur_step
+            self.model.backward(R, dt, self.summary_writer, global_step)
         df = pd.DataFrame(self.data)
         df.to_csv(self.output_path + 'train_reward.csv')
 
@@ -300,9 +310,10 @@ class Tester(Trainer):
         rewards = []
         for test_ind in range(self.test_num):
             rewards.append(self.perform(test_ind))
-            self.env.terminate()
-            time.sleep(2)
-            self.env.collect_tripinfo()
+            if self.env.name == 'large_grid':
+                self.env.terminate()
+                time.sleep(2)
+                self.env.collect_tripinfo()
         avg_reward = np.mean(np.array(rewards))
         logging.info('Offline testing: avg R: %.2f' % avg_reward)
         self.env.output_data()
@@ -316,7 +327,8 @@ class Tester(Trainer):
                 global_step = self.global_counter.cur_step
                 for test_ind in range(self.test_num):
                     cur_reward = self.perform(test_ind)
-                    self.env.terminate()
+                    if self.env.name == 'large_grid':
+                        self.env.terminate()
                     rewards.append(cur_reward)
                     log = {'agent': self.agent,
                            'step': global_step,
@@ -353,8 +365,9 @@ class Evaluator(Tester):
         time.sleep(1)
         for test_ind in range(self.test_num):
             reward, _ = self.perform(test_ind, gui=self.gui)
-            self.env.terminate()
             logging.info('test %i, avg reward %.2f' % (test_ind, reward))
-            time.sleep(2)
-            self.env.collect_tripinfo()
+            if self.env.name == 'large_grid':
+                self.env.terminate()
+                time.sleep(2)
+                self.env.collect_tripinfo()
         self.env.output_data()

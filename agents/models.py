@@ -18,10 +18,10 @@ class IA2C:
     limited to neighborhood area only.
     """
     def __init__(self, n_s_ls, n_a, neighbor_mask, distance_mask, coop_gamma,
-                 total_step, model_config, seed=0):
+                 total_step, model_config, discrete_control, seed=0):
         self.name = 'ia2c'
         self._init_algo(n_s_ls, n_a, neighbor_mask, distance_mask, coop_gamma,
-                        total_step, seed, model_config)
+                        total_step, seed, model_config, discrete_control)
 
     def add_transition(self, ob, naction, action, reward, value, done):
         if self.reward_norm > 0:
@@ -78,12 +78,13 @@ class IA2C:
         self.saver.save(self.sess, model_dir + 'checkpoint', global_step=global_step)
 
     def _init_algo(self, n_s_ls, n_a, neighbor_mask, distance_mask, coop_gamma,
-                   total_step, seed, model_config):
+                   total_step, seed, model_config, discrete_control):
         # init params
         if self.name.startswith('ia2c'):
             self.n_s_ls = n_s_ls
         else:
             self.n_s = n_s_ls
+        self.discrete_control = discrete_control
         self.n_a = n_a
         self.neighbor_mask = neighbor_mask
         self.n_agent = len(self.neighbor_mask)
@@ -110,7 +111,8 @@ class IA2C:
         for i in range(self.n_agent):
             n_n = np.sum(self.neighbor_mask[i])
             policy.append(LstmPolicy(self.n_s_ls[i], self.n_a, n_n, self.n_step,
-                                     n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i))
+                                     n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i,
+                                     discrete_control=self.discrete_control))
         return policy
 
     def _init_scheduler(self, model_config):
@@ -145,28 +147,32 @@ class IA2C_FP(IA2C):
     In fingerprint IA2C, neighborhood policies (fingerprints) are also included.
     """
     def __init__(self, n_s_ls, n_a, neighbor_mask, distance_mask, coop_gamma,
-                 total_step, model_config, seed=0):
+                 total_step, model_config, discrete_control, seed=0):
         self.name = 'ia2c_fp'
         self._init_algo(n_s_ls, n_a, neighbor_mask, distance_mask, coop_gamma, 
-                        total_step, seed, model_config)
+                        total_step, seed, model_config, discrete_control)
 
     def _init_policy(self):
         policy = []
         for i in range(self.n_agent):
             n_n = np.sum(self.neighbor_mask[i])
             # neighborhood policies are included in local state
-            n_s1 = self.n_s_ls[i] + self.n_a*n_n
+            if self.discrete_control:
+                n_s1 = self.n_s_ls[i] + self.n_a*n_n
+            else:
+                n_s1 = self.n_s_ls[i] + self.n_a*n_n*2
             policy.append(FPPolicy(n_s1, self.n_a, n_n, self.n_step, n_fc=self.n_fc,
-                                   n_lstm=self.n_lstm, name='%d' % i))
+                                   n_lstm=self.n_lstm, name='%d' % i,
+                                   discrete_control=self.discrete_control))
         return policy
 
 
 class MA2C_NC(IA2C):
     def __init__(self, n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
-                 total_step, model_config, seed=0):
+                 total_step, model_config, discrete_control, seed=0):
         self.name = 'ma2c_nc'
         self._init_algo(n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
-                        total_step, seed, model_config)
+                        total_step, seed, model_config, discrete_control)
 
     def add_transition(self, ob, p, action, reward, value, done):
         if self.reward_norm > 0:
@@ -186,7 +192,8 @@ class MA2C_NC(IA2C):
 
     def _init_policy(self):
         return NCMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
-                                  self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+                                  self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                                  discrete_control=self.discrete_control)
 
     def _init_train(self, model_config, distance_mask, coop_gamma):
         # init lr scheduler
@@ -205,26 +212,28 @@ class MA2C_NC(IA2C):
 
 class IA2C_CU(MA2C_NC):
     def __init__(self, n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
-                 total_step, model_config, seed=0):
+                 total_step, model_config, discrete_control, seed=0):
         self.name = 'ma2c_cu'
         self._init_algo(n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
-                        total_step, seed, model_config)
+                        total_step, seed, model_config, discrete_control)
 
     def _init_policy(self):
         return ConsensusPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
-                               self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+                               self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                               discrete_control=self.discrete_control)
 
 
 class MA2C_IC3(MA2C_NC):
     def __init__(self, n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
-                 total_step, model_config, seed=0):
+                 total_step, model_config, discrete_control, seed=0):
         self.name = 'ma2c_ic3'
         self._init_algo(n_s, n_a, neighbor_mask, distance_mask, coop_gamma,
-                        total_step, seed, model_config)
+                        total_step, seed, model_config, discrete_control)
 
     def _init_policy(self):
         return IC3MultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
-                                   self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+                                   self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                                   discrete_control=self.discrete_control)
 
 
 class MA2C_DIAL(MA2C_NC):
@@ -236,4 +245,5 @@ class MA2C_DIAL(MA2C_NC):
 
     def _init_policy(self):
         return DIALMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
-                                    self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+                                    self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                                    discrete_control=self.discrete_control)

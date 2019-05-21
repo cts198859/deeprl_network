@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import os
 import seaborn as sns
 import time
-from envs.env import PhaseMap, PhaseSet, TrafficSimulator
+from envs.tsc_env import PhaseMap, PhaseSet, TrafficSimulator
 from envs.data.build_file import gen_rou_file
 
 sns.set_color_codes()

@@ -93,8 +93,11 @@ class TrafficSimulator:
                       'wait': config.getfloat('clip_wait')}
         self.coef_wait = config.getfloat('coef_wait')
         self.train_mode = True
-        test_seeds = config.get('test_seeds').split(',')
-        test_seeds = [int(s) for s in test_seeds]
+        test_seeds = config.get('test_seeds')
+        if test_seeds == 'default':
+            test_seeds = list(range(2000, 2500, 10))
+        else:
+            test_seeds = [int(s) for s in test_seeds.split(',')]
         self._init_map()
         self.init_data(is_record, record_stats, output_path)
         self.init_test_seeds(test_seeds)

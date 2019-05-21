@@ -4,29 +4,47 @@ from agents.utils import *
 
 
 class Policy:
-    def __init__(self, n_a, n_s, n_step, policy_name, agent_name):
+    def __init__(self, n_a, n_s, n_step, policy_name, agent_name, discrete_control):
         self.name = policy_name
         if agent_name is not None:
             # for multi-agent system
             self.name += '_' + str(agent_name)
+        assert n_a == 1
         self.n_a = n_a
         self.n_s = n_s
         self.n_step = n_step
+        self.discrete_control = discrete_control
 
     def forward(self, ob, *_args, **_kwargs):
         raise NotImplementedError()
 
-    def prepare_loss(self, v_coef, e_coef, max_grad_norm, alpha, epsilon):
-        self.A = tf.placeholder(tf.int32, [self.n_step])
-        self.ADV = tf.placeholder(tf.float32, [self.n_step])
-        self.R = tf.placeholder(tf.float32, [self.n_step])
+    def _discrete_policy_loss(self):
         A_sparse = tf.one_hot(self.A, self.n_a)
         log_pi = tf.log(tf.clip_by_value(self.pi, 1e-10, 1.0))
         entropy = -tf.reduce_sum(self.pi * log_pi, axis=1)
-        entropy_loss = -tf.reduce_mean(entropy) * e_coef
+        entropy_loss = -tf.reduce_mean(entropy)
         policy_loss = -tf.reduce_mean(tf.reduce_sum(log_pi * A_sparse, axis=1) * self.ADV)
+        return policy_loss, entropy_loss
+
+    def _continuous_policy_loss(self):
+        pi_mu, pi_sigma = tf.split(axis=-1, num_or_size_splits=2, value=self.pi)
+        a_norm_dist = tf.contrib.distributions.Normal(tf.squeeze(pi_mu), tf.squeeze(pi_sigma))
+        log_prob = a_norm_dist.log_prob(self.A)
+        entropy_loss = -tf.reduce_mean(a_norm_dist.entropy())
+        policy_loss = -tf.reduce_mean(log_prob * self.ADV)
+        return policy_loss, entropy_loss
+
+    def prepare_loss(self, v_coef, e_coef, max_grad_norm, alpha, epsilon):
+        self.ADV = tf.placeholder(tf.float32, [self.n_step])
+        self.R = tf.placeholder(tf.float32, [self.n_step])
+        if self.discrete_control:
+            self.A = tf.placeholder(tf.int32, [self.n_step])
+            policy_loss, entropy_loss = self._discrete_policy_loss()
+        else:
+            self.A = tf.placeholder(tf.float32, [self.n_step])
+            policy_loss, entropy_loss = self._continuous_policy_loss()
         value_loss = tf.reduce_mean(tf.square(self.R - self.v)) * 0.5 * v_coef
-        self.loss = policy_loss + value_loss + entropy_loss
+        self.loss = policy_loss + value_loss + entropy_loss * e_coef
 
         wts = tf.trainable_variables(scope=self.name)
         grads = tf.gradients(self.loss, wts)
@@ -50,7 +68,12 @@ class Policy:
         name = 'pi'
         if agent_name is not None:
             name += '_' + str(agent_name)
-        pi = fc(h, name, self.n_a, act=tf.nn.softmax)
+        if self.discrete_control:
+            pi = fc(h, name, self.n_a, act=tf.nn.softmax)
+        else:
+            pi_mu = fc(h, name + '_mu', self.n_a, act=tf.nn.tanh)
+            pi_sigma = fc(h, name + '_sigma', self.n_a, act=tf.nn.tanh) + 1 + 1e-3
+            pi = tf.concat([pi_mu, pi_sigma], axis=-1)
         return pi
 
     def _build_critic_head(self, h, na, n_n=None, agent_name=None):
@@ -59,16 +82,20 @@ class Policy:
             name += '_' + str(agent_name)
         if n_n is None:
             n_n = na.shape[-1]
-        na_sparse = tf.one_hot(na, self.n_a, axis=-1)
-        na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
+        if self.discrete_control:
+            na_sparse = tf.one_hot(na, self.n_a, axis=-1)
+            na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
+        else:
+            na_sparse = tf.reshape(na, [-1, n_n])
         h = tf.concat([h, na_sparse], 1)
         v = fc(h, name, 1, act=lambda x: x)
         return v
 
 
 class LstmPolicy(Policy):
-    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None):
-        super().__init__(n_a, n_s, n_step, 'lstm', name)
+    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None,
+                 discrete_control=True):
+        super().__init__(n_a, n_s, n_step, 'lstm', name, discrete_control)
         self.n_lstm = n_lstm
         self.n_fc = n_fc
         self.n_n = n_n
@@ -138,8 +165,9 @@ class LstmPolicy(Policy):
 
 
 class FPPolicy(LstmPolicy):
-    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None):
-        super().__init__(n_s, n_a, n_n, n_step, n_fc, n_lstm, name)
+    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None,
+                 discrete_control=True):
+        super().__init__(n_s, n_a, n_n, n_step, n_fc, n_lstm, name, discrete_control)
 
     def _build_net(self, in_type):
         if in_type == 'forward':
@@ -164,8 +192,9 @@ class NCMultiAgentPolicy(Policy):
     """ Inplemented as a centralized agent. To simplify the implementation, all input
     and output dimensions are identical among all agents, and invalid values are casted as
     zeros during runtime."""
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        super().__init__(n_a, n_s, n_step, 'nc', None)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 discrete_control=True):
+        super().__init__(n_a, n_s, n_step, 'nc', None, discrete_control)
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
@@ -200,17 +229,32 @@ class NCMultiAgentPolicy(Policy):
             self.states_fw = out_values[-1]
         return out_value
 
-    def prepare_loss(self, v_coef, e_coef, max_grad_norm, alpha, epsilon):
-        self.ADV = tf.placeholder(tf.float32, [self.n_agent, self.n_step])
-        self.R = tf.placeholder(tf.float32, [self.n_agent, self.n_step])
+    def _discrete_policy_loss(self):
         A_sparse = tf.one_hot(self.action_bw, self.n_a)
         # all losses are averaged over steps but summed over agents
         log_pi = tf.log(tf.clip_by_value(self.pi, 1e-10, 1.0))
         entropy = -tf.reduce_sum(self.pi * log_pi, axis=-1)
-        entropy_loss = -tf.reduce_sum(tf.reduce_mean(entropy, axis=-1)) * e_coef
+        entropy_loss = -tf.reduce_sum(tf.reduce_mean(entropy, axis=-1))
         policy_loss = -tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(log_pi * A_sparse, axis=-1) * self.ADV, axis=-1))
+        return policy_loss, entropy_loss
+
+    def _continuous_policy_loss(self):
+        pi_mu, pi_sigma = tf.split(axis=-1, num_or_size_splits=2, value=self.pi)
+        a_norm_dist = tf.contrib.distributions.Normal(tf.squeeze(pi_mu), tf.squeeze(pi_sigma))
+        log_prob = a_norm_dist.log_prob(self.action_bw)
+        entropy_loss = -tf.reduce_sum(tf.reduce_mean(a_norm_dist.entropy(), axis=-1))
+        policy_loss = -tf.reduce_sum(tf.reduce_mean(log_prob * self.ADV, axis=-1))
+        return policy_loss, entropy_loss
+
+    def prepare_loss(self, v_coef, e_coef, max_grad_norm, alpha, epsilon):
+        self.ADV = tf.placeholder(tf.float32, [self.n_agent, self.n_step])
+        self.R = tf.placeholder(tf.float32, [self.n_agent, self.n_step])
+        if self.discrete_control:
+            policy_loss, entropy_loss = self._discrete_policy_loss()
+        else:
+            policy_loss, entropy_loss = self._continuous_policy_loss()
         value_loss = tf.reduce_sum(tf.reduce_mean(tf.square(self.R - self.v), axis=-1)) * 0.5 * v_coef
-        self.loss = policy_loss + value_loss + entropy_loss
+        self.loss = policy_loss + value_loss + entropy_loss * e_coef
 
         wts = tf.trainable_variables(scope=self.name)
         grads = tf.gradients(self.loss, wts)
@@ -259,12 +303,19 @@ class NCMultiAgentPolicy(Policy):
         self.neighbor_mask = neighbor_mask #n_agent x n_agent
         self.n_h = n_h
         self.ob_fw = tf.placeholder(tf.float32, [n_agent, 1, self.n_s]) # forward 1-step
-        self.policy_fw = tf.placeholder(tf.float32, [n_agent, 1, self.n_a])
-        self.action_fw = tf.placeholder(tf.int32, [n_agent, 1])
+        if self.discrete_control:
+            self.policy_fw = tf.placeholder(tf.float32, [n_agent, 1, self.n_a])
+            self.policy_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, self.n_a])
+            self.action_fw = tf.placeholder(tf.int32, [n_agent, 1])
+            self.action_bw = tf.placeholder(tf.int32, [n_agent, self.n_step])
+        else:
+            self.policy_fw = tf.placeholder(tf.float32, [n_agent, 1, self.n_a*2])
+            self.policy_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, self.n_a*2])
+            self.action_fw = tf.placeholder(tf.float32, [n_agent, 1])
+            self.action_bw = tf.placeholder(tf.float32, [n_agent, self.n_step])
+        
         self.done_fw = tf.placeholder(tf.float32, [1])
         self.ob_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, self.n_s]) # backward n-step
-        self.policy_bw = tf.placeholder(tf.float32, [n_agent, self.n_step, self.n_a])
-        self.action_bw = tf.placeholder(tf.int32, [n_agent, self.n_step])
         self.done_bw = tf.placeholder(tf.float32, [self.n_step])
         self.states = tf.placeholder(tf.float32, [n_agent, n_h * 2])
 
@@ -280,8 +331,9 @@ class NCMultiAgentPolicy(Policy):
 
 
 class ConsensusPolicy(NCMultiAgentPolicy):
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        Policy.__init__(self, n_a, n_s, n_step, 'cu', None)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 discrete_control=True):
+        Policy.__init__(self, n_a, n_s, n_step, 'cu', None, discrete_control)
         self.n_agent = n_agent
         self.n_h = n_h
         self.neighbor_mask = neighbor_mask
@@ -358,8 +410,9 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
     """Reference code: https://github.com/IC3Net/IC3Net/blob/master/comm.py.
        Note in IC3, the message is generated from hidden state only, so current state
        and neigbor policies are not included in the inputs."""
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        Policy.__init__(self, n_a, n_s, n_step, 'ic3', None)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 discrete_control=True):
+        Policy.__init__(self, n_a, n_s, n_step, 'ic3', None, discrete_control)
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def _build_net(self, in_type):
@@ -386,8 +439,9 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
 
 
 class DIALMultiAgentPolicy(NCMultiAgentPolicy):
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        Policy.__init__(self, n_a, n_s, n_step, 'dial', None)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 discrete_control=True):
+        Policy.__init__(self, n_a, n_s, n_step, 'dial', None, discrete_control)
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def _build_net(self, in_type):

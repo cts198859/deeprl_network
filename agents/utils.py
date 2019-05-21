@@ -558,7 +558,7 @@ class OnPolicyBuffer(TransBuffer):
         for r, v, done in zip(self.rs[::-1], self.vs[::-1], self.dones[:0:-1]):
             R = self.gamma * R * (1.-done)
             # additional spatial rewards
-            for t in range(self.max_distance + 1):
+            for t in range(int(self.max_distance) + 1):
                 rt = np.sum(r[self.distance_mask == t])
                 R += (self.alpha ** t) * rt
             Adv = R - v
@@ -625,7 +625,7 @@ class MultiAgentOnPolicyBuffer(OnPolicyBuffer):
                     tdiff = 0
                 # additional spatial rewards
                 tmax = min(tdiff, max_distance)
-                for t in range(tmax + 1):
+                for t in range(int(tmax) + 1):
                     rt = np.sum(r[distance_mask==t])
                     cur_R += (self.gamma * self.alpha) ** t * rt
                 cur_Adv = cur_R - v

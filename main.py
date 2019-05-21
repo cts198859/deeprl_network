@@ -8,7 +8,8 @@ import configparser
 import logging
 import tensorflow as tf
 import threading
-from envs.large_grid_env import LargeGridEnv, LargeGridController
+from envs.large_grid_env import LargeGridEnv
+from envs.cacc_env import CACCEnv
 from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
@@ -17,8 +18,8 @@ from utils import (Counter, Trainer, Tester, Evaluator,
 
 
 def parse_args():
-    default_base_dir = './data/models/ia2c_fp'
-    default_config_dir = './config/config_ma2c_ic3.ini'
+    default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ma2c_cacc'
+    default_config_dir = './config/config_ma2c_nc_cacc.ini'
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-dir', type=str, required=False,
                         default=default_base_dir, help="experiment base dir")
@@ -42,34 +43,36 @@ def parse_args():
     return args
 
 
-def init_env(config, port=0, naive_policy=False):
-    if not naive_policy:
+def init_env(config, port=0):
+    if config.get('ENV_CONFIG', 'scenario') == 'large_grid':
         return LargeGridEnv(config, port=port)
     else:
-        env = LargeGridEnv(config, port=port)
-        policy = LargeGridController(env.node_names)
-        return env, policy
+        return CACCEnv(config)
 
 
 def init_agent(env, config, total_step, seed):
+    if env.name == 'large_grid':
+        discrete_control = True
+    else:
+        discrete_control = False
     if env.agent == 'ia2c':
         return IA2C(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                    total_step, config, seed=seed)
+                    total_step, config, discrete_control, seed=seed)
     elif env.agent == 'ia2c_fp':
         return IA2C_FP(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                       total_step, config, seed=seed)
+                       total_step, config, discrete_control, seed=seed)
     elif env.agent == 'ma2c_nc':
         return MA2C_NC(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                       total_step, config, seed=seed)
+                       total_step, config, discrete_control, seed=seed)
     elif env.agent == 'ma2c_ic3':
         return MA2C_IC3(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                        total_step, config, seed=seed)
+                        total_step, config, discrete_control, seed=seed)
     elif env.agent == 'ma2c_cu':
         return IA2C_CU(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                       total_step, config, seed=seed)
+                       total_step, config, discrete_control, seed=seed)
     elif env.agent == 'ma2c_dial':
         return MA2C_DIAL(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                         total_step, config, seed=seed)
+                         total_step, config, discrete_control, seed=seed)
     else:
         return None
 
@@ -131,23 +134,19 @@ def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
     config.read(config_dir)
 
     # init env
-    env, greedy_policy = init_env(config['ENV_CONFIG'], port=port, naive_policy=True)
+    env = init_env(config['ENV_CONFIG'], port=port)
     env.init_test_seeds(seeds)
 
     # load model for agent
-    if agent != 'greedy':
-        # init centralized or multi agent
-        model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
-        if model is None:
-            return
-        if not demo:
-            model_dir = agent_dir + '/model/'
-        else:
-            model_dir = agent_dir + '/'
-        if not model.load(model_dir):
-            return
+    model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
+    if model is None:
+        return
+    if not demo:
+        model_dir = agent_dir + '/model/'
     else:
-        model = greedy_policy
+        model_dir = agent_dir + '/'
+    if not model.load(model_dir):
+        return
     # collect evaluation data
     evaluator = Evaluator(env, model, output_dir, gui=demo)
     evaluator.run()
