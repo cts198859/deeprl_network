@@ -285,7 +285,7 @@ class CACCEnv:
 
 class OVMCarFollowing:
     '''
-    A OVM controller for human-driven vehicles
+    The OVM controller for vehicle ACC
     Attributes:
         h_st (float): stop headway
         h_go (float): full-speed headway

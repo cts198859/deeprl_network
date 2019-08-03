@@ -44,8 +44,10 @@ def parse_args():
 
 
 def init_env(config, port=0):
-    if config.get('ENV_CONFIG', 'scenario') == 'large_grid':
-        return LargeGridEnv(config, port=port)
+    scenario = config.get('ENV_CONFIG', 'scenario')
+    if scenario.startswith('atsc'):
+        if scenario.endswith('large_grid'):
+            return LargeGridEnv(config, port=port)
     else:
         return CACCEnv(config)
 
