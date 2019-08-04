@@ -98,7 +98,7 @@ class Counter:
 
 
 class Trainer():
-    def __init__(self, env, model, global_counter, summary_writer, run_test, output_path=None):
+    def __init__(self, env, model, global_counter, summary_writer, output_path=None):
         self.cur_step = 0
         self.global_counter = global_counter
         self.env = env
@@ -107,13 +107,10 @@ class Trainer():
         self.sess = self.model.sess
         self.n_step = self.model.n_step
         self.summary_writer = summary_writer
-        self.run_test = run_test
-        assert self.env.T % self.n_step == 0
+        # assert self.env.T % self.n_step == 0
         self.data = []
         self.output_path = output_path
-        if run_test:
-            self.test_num = self.env.test_num
-            logging.info('Testing: total test num: %d' % self.test_num)
+        self.env.train_mode = True
         self._init_summary()
 
     def _init_summary(self):
@@ -253,27 +250,6 @@ class Trainer():
         self.cur_step = 0
         self.episode_rewards = []
         while not self.global_counter.should_stop():
-            # test
-            if self.run_test and self.global_counter.should_test():
-                rewards = []
-                global_step = self.global_counter.cur_step
-                self.env.train_mode = False
-                for test_ind in range(self.test_num):
-                    mean_reward, std_reward = self.perform(test_ind)
-                    self.env.terminate()
-                    rewards.append(mean_reward)
-                    log = {'agent': self.agent,
-                           'step': global_step,
-                           'test_id': test_ind,
-                           'avg_reward': mean_reward,
-                           'std_reward': std_reward}
-                    self.data.append(log)
-                avg_reward = np.mean(np.array(rewards))
-                self._add_summary(avg_reward, global_step, is_train=False)
-                logging.info('Testing: global step %d, avg R: %.2f' %
-                             (global_step, avg_reward))
-            # train
-            self.env.train_mode = True
             ob, done, R = self.explore(ob, done)
             dt = self.env.T - self.cur_step
             global_step = self.global_counter.cur_step

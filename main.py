@@ -8,7 +8,7 @@ import configparser
 import logging
 import tensorflow as tf
 import threading
-from envs.large_grid_env import LargeGridEnv, LargeGridController
+from envs.large_grid_env import LargeGridEnv
 from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
@@ -24,10 +24,6 @@ def parse_args():
                         default=default_base_dir, help="experiment base dir")
     subparsers = parser.add_subparsers(dest='option', help="train or evaluate")
     sp = subparsers.add_parser('train', help='train a single agent under base dir')
-    sp.add_argument('--test-mode', type=str, required=False,
-                    default='after_train_test',
-                    help="test mode during training",
-                    choices=['no_test', 'in_train_test', 'after_train_test', 'all_test'])
     sp.add_argument('--config-dir', type=str, required=False,
                     default=default_config_dir, help="experiment config path")
     sp = subparsers.add_parser('evaluate', help="evaluate and compare agents under base dir")
@@ -82,7 +78,6 @@ def train(args):
     copy_file(config_dir, dirs['data'])
     config = configparser.ConfigParser()
     config.read(config_dir)
-    in_test, post_test = init_test_flag(args.test_mode)
 
     # init env
     env = init_env(config['ENV_CONFIG'])
@@ -100,19 +95,13 @@ def train(args):
 
     # disable multi-threading for safe SUMO implementation
     summary_writer = tf.summary.FileWriter(dirs['log'])
-    trainer = Trainer(env, model, global_counter, summary_writer, in_test, output_path=dirs['data'])
+    trainer = Trainer(env, model, global_counter, summary_writer, output_path=dirs['data'])
     trainer.run()
 
     # save model
     final_step = global_counter.cur_step
     logging.info('Training: save final model at step %d ...' % final_step)
     model.save(dirs['model'], final_step)
-
-    # post-training test
-    if post_test:
-        test_dirs = init_dir(base_dir, pathes=['eva_data'])
-        evaluator = Evaluator(env, model, test_dirs['eva_data'])
-        evaluator.run()
 
 
 def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
