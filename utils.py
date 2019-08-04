@@ -151,10 +151,19 @@ class Trainer():
             value = self.model.forward(ob, done, self.naction, 'v')
         return value
 
+    def _log_episode(self, global_step, mean_reward, std_reward):
+        log = {'agent': self.agent,
+               'step': global_step,
+               'test_id': -1,
+               'avg_reward': mean_reward,
+               'std_reward': std_reward}
+        self.data.append(log)
+        self._add_summary(mean_reward, global_step)
+        self.summary_writer.flush()
+
     def explore(self, prev_ob, prev_done):
         ob = prev_ob
         done = prev_done
-        rewards = []
         for _ in range(self.n_step):
             # pre-decision
             policy, action = self._get_policy(ob, done)
@@ -163,7 +172,7 @@ class Trainer():
             # transition
             self.env.update_fingerprint(policy)
             next_ob, reward, done, global_reward = self.env.step(action)
-            rewards.append(global_reward)
+            self.episode_rewards.append(global_reward)
             global_step = self.global_counter.next()
             self.cur_step += 1
             # collect experience
@@ -177,15 +186,27 @@ class Trainer():
                                    ob: %s, a: %s, pi: %s, r: %.2f, train r: %.2f, done: %r''' %
                              (global_step, self.cur_step,
                               str(ob), str(action), str(policy), global_reward, np.mean(reward), done))
+            # terminal check must be inside batch loop for CACC env
             if done:
-                break
-            ob = next_ob
+                # log the current episode reward and start a new one
+                self.env.terminate()
+                rewards = np.array(self.episode_rewards)
+                mean_reward = np.mean(rewards)
+                std_reward = np.std(rewards)
+                self._log_episode(global_step, mean_reward, std_reward)
+                self.episode_rewards = []
+                # reset env
+                ob = self.env.reset()
+                self.cur_step = 0
+                done = False
+            else:
+                ob = next_ob
         if done:
             R = np.zeros(self.model.n_agent)
         else:
             _, action = self._get_policy(ob, done)
             R = self._get_value(ob, done, action)
-        return ob, done, R, rewards
+        return ob, done, R
 
     def perform(self, test_ind, gui=False):
         ob = self.env.reset(gui=gui, test_ind=test_ind)
@@ -208,7 +229,7 @@ class Trainer():
         return mean_reward, std_reward
 
     def run_thread(self, coord):
-        '''Multi-threading is disabled'''
+        '''Multi-threading is disabled for SUMO'''
         ob = self.env.reset()
         done = False
         cum_reward = 0
@@ -227,6 +248,10 @@ class Trainer():
                 return
 
     def run(self):
+        ob = self.env.reset()
+        done = False
+        self.cur_step = 0
+        self.episode_rewards = []
         while not self.global_counter.should_stop():
             # test
             if self.run_test and self.global_counter.should_test():
@@ -249,31 +274,10 @@ class Trainer():
                              (global_step, avg_reward))
             # train
             self.env.train_mode = True
-            ob = self.env.reset()
-            done = False
-            self.cur_step = 0
-            rewards = []
-            while True:
-                ob, done, R, cur_rewards = self.explore(ob, done)
-                dt = self.env.T - self.cur_step
-                rewards += cur_rewards
-                global_step = self.global_counter.cur_step
-                self.model.backward(R, dt, self.summary_writer, global_step)
-                # termination
-                if done:
-                    self.env.terminate()
-                    break
-            rewards = np.array(rewards)
-            mean_reward = np.mean(rewards)
-            std_reward = np.std(rewards)
-            log = {'agent': self.agent,
-                   'step': global_step,
-                   'test_id': -1,
-                   'avg_reward': mean_reward,
-                   'std_reward': std_reward}
-            self.data.append(log)
-            self._add_summary(mean_reward, global_step)
-            self.summary_writer.flush()
+            ob, done, R = self.explore(ob, done)
+            dt = self.env.T - self.cur_step
+            global_step = self.global_counter.cur_step
+            self.model.backward(R, dt, self.summary_writer, global_step)
         df = pd.DataFrame(self.data)
         df.to_csv(self.output_path + 'train_reward.csv')
 

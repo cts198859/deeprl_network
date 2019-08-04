@@ -42,13 +42,13 @@ def parse_args():
     return args
 
 
-def init_env(config, port=0, naive_policy=False):
-    if not naive_policy:
-        return LargeGridEnv(config, port=port)
+def init_env(config, port=0):
+    scenario = config.get('scenario')
+    if scenario.startswith('atsc'):
+        if scenario.endswith('large_grid'):
+            return LargeGridEnv(config, port=port)
     else:
-        env = LargeGridEnv(config, port=port)
-        policy = LargeGridController(env.node_names)
-        return env, policy
+        return None
 
 
 def init_agent(env, config, total_step, seed):
@@ -131,23 +131,19 @@ def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
     config.read(config_dir)
 
     # init env
-    env, greedy_policy = init_env(config['ENV_CONFIG'], port=port, naive_policy=True)
+    env = init_env(config['ENV_CONFIG'], port=port)
     env.init_test_seeds(seeds)
 
     # load model for agent
-    if agent != 'greedy':
-        # init centralized or multi agent
-        model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
-        if model is None:
-            return
-        if not demo:
-            model_dir = agent_dir + '/model/'
-        else:
-            model_dir = agent_dir + '/'
-        if not model.load(model_dir):
-            return
+    model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
+    if model is None:
+        return
+    if not demo:
+        model_dir = agent_dir + '/model/'
     else:
-        model = greedy_policy
+        model_dir = agent_dir + '/'
+    if not model.load(model_dir):
+        return
     # collect evaluation data
     evaluator = Evaluator(env, model, output_dir, gui=demo)
     evaluator.run()
