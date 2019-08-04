@@ -107,7 +107,7 @@ class Trainer():
         self.sess = self.model.sess
         self.n_step = self.model.n_step
         self.summary_writer = summary_writer
-        # assert self.env.T % self.n_step == 0
+        assert self.env.T % self.n_step == 0
         self.data = []
         self.output_path = output_path
         self.env.train_mode = True
@@ -185,19 +185,8 @@ class Trainer():
                               str(ob), str(action), str(policy), global_reward, np.mean(reward), done))
             # terminal check must be inside batch loop for CACC env
             if done:
-                # log the current episode reward and start a new one
-                self.env.terminate()
-                rewards = np.array(self.episode_rewards)
-                mean_reward = np.mean(rewards)
-                std_reward = np.std(rewards)
-                self._log_episode(global_step, mean_reward, std_reward)
-                self.episode_rewards = []
-                # reset env
-                ob = self.env.reset()
-                self.cur_step = 0
-                done = False
-            else:
-                ob = next_ob
+                break
+            ob = next_ob
         if done:
             R = np.zeros(self.model.n_agent)
         else:
@@ -245,15 +234,24 @@ class Trainer():
                 return
 
     def run(self):
-        ob = self.env.reset()
-        done = False
-        self.cur_step = 0
-        self.episode_rewards = []
         while not self.global_counter.should_stop():
-            ob, done, R = self.explore(ob, done)
-            dt = self.env.T - self.cur_step
-            global_step = self.global_counter.cur_step
-            self.model.backward(R, dt, self.summary_writer, global_step)
+            ob = self.env.reset()
+            done = False
+            self.cur_step = 0
+            self.episode_rewards = []
+            while True:
+                ob, done, R = self.explore(ob, done)
+                dt = self.env.T - self.cur_step
+                global_step = self.global_counter.cur_step
+                self.model.backward(R, dt, self.summary_writer, global_step)
+                # termination
+                if done:
+                    self.env.terminate()
+                    break
+            rewards = np.array(self.episode_rewards)
+            mean_reward = np.mean(rewards)
+            std_reward = np.std(rewards)
+            self._log_episode(global_step, mean_reward, std_reward)
         df = pd.DataFrame(self.data)
         df.to_csv(self.output_path + 'train_reward.csv')
 

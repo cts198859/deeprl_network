@@ -1,5 +1,5 @@
 """
-Main function for training and evaluating MARL algorithms in traffic envs
+Main function for training and evaluating MARL algorithms in NMARL envs
 @author: Tianshu Chu
 """
 
@@ -58,6 +58,7 @@ def init_agent(env, config, total_step, seed):
         return MA2C_NC(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
     elif env.agent == 'ma2c_ic3':
+        # this is actually CommNet
         return MA2C_IC3(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                         total_step, config, seed=seed)
     elif env.agent == 'ma2c_cu':

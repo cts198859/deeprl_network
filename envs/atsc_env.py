@@ -366,8 +366,9 @@ class TrafficSimulator:
                 num_n = 1 + len(node.neighbor)
             n_s_ls.append(num_wait + num_wave * num_n)
         if self.agent.startswith('ma2c'):
-            assert len(set(n_s_ls)) == 1
-            self.n_s = n_s_ls[0]
+            # relaxed for realnet env
+            # assert len(set(n_s_ls)) == 1
+            self.n_s = max(n_s_ls)
         else:
             self.n_s_ls = n_s_ls
 

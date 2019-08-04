@@ -1,5 +1,5 @@
 """
-Particular class of large traffic grid
+ATSC scenario: large traffic grid
 @author: Tianshu Chu
 """
 
@@ -11,7 +11,7 @@ import os
 import seaborn as sns
 import time
 from envs.atsc_env import PhaseMap, PhaseSet, TrafficSimulator
-from envs.data.build_file import gen_rou_file
+from envs.large_grid_data.build_file import gen_rou_file
 
 sns.set_color_codes()
 
