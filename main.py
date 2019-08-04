@@ -8,6 +8,7 @@ import configparser
 import logging
 import tensorflow as tf
 import threading
+from envs.cacc_env import CACCEnv
 from envs.large_grid_env import LargeGridEnv
 from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
 from utils import (Counter, Trainer, Tester, Evaluator,
@@ -44,7 +45,7 @@ def init_env(config, port=0):
         if scenario.endswith('large_grid'):
             return LargeGridEnv(config, port=port)
     else:
-        return None
+        return CACCEnv(config)
 
 
 def init_agent(env, config, total_step, seed):
