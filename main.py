@@ -10,6 +10,7 @@ import tensorflow as tf
 import threading
 from envs.cacc_env import CACCEnv
 from envs.large_grid_env import LargeGridEnv
+from envs.real_net_env import RealNetEnv
 from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
@@ -44,29 +45,31 @@ def init_env(config, port=0):
     if scenario.startswith('atsc'):
         if scenario.endswith('large_grid'):
             return LargeGridEnv(config, port=port)
+        else:
+            return RealNetEnv(config, port=port)
     else:
         return CACCEnv(config)
 
 
 def init_agent(env, config, total_step, seed):
     if env.agent == 'ia2c':
-        return IA2C(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+        return IA2C(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                     total_step, config, seed=seed)
     elif env.agent == 'ia2c_fp':
-        return IA2C_FP(env.n_s_ls, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+        return IA2C_FP(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
     elif env.agent == 'ma2c_nc':
-        return MA2C_NC(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+        return MA2C_NC(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
     elif env.agent == 'ma2c_ic3':
         # this is actually CommNet
-        return MA2C_IC3(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+        return MA2C_IC3(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                         total_step, config, seed=seed)
     elif env.agent == 'ma2c_cu':
-        return IA2C_CU(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+        return IA2C_CU(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
     elif env.agent == 'ma2c_dial':
-        return MA2C_DIAL(env.n_s, env.n_a, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+        return MA2C_DIAL(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                          total_step, config, seed=seed)
     else:
         return None

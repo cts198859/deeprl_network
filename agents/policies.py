@@ -4,7 +4,7 @@ from agents.utils import *
 
 
 class Policy:
-    def __init__(self, n_a, n_s, n_step, policy_name, agent_name):
+    def __init__(self, n_a, n_s, n_step, policy_name, agent_name, identical):
         self.name = policy_name
         if agent_name is not None:
             # for multi-agent system
@@ -12,6 +12,7 @@ class Policy:
         self.n_a = n_a
         self.n_s = n_s
         self.n_step = n_step
+        self.identical = identical
 
     def forward(self, ob, *_args, **_kwargs):
         raise NotImplementedError()
@@ -57,18 +58,28 @@ class Policy:
         name = 'v'
         if agent_name is not None:
             name += '_' + str(agent_name)
-        if n_n is None:
-            n_n = na.shape[-1]
-        na_sparse = tf.one_hot(na, self.n_a, axis=-1)
-        na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
+        if self.identical:
+            if n_n is None:
+                n_n = na.shape[-1]
+            na_sparse = tf.one_hot(na, self.n_a, axis=-1)
+            na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
+        else:
+            na_sparse = []
+            na_ls = tf.split(axis=1, num_or_size_splits=self.n_n, value=na)
+            for na_val, na_dim in zip(na_ls, self.na_dim_ls):
+                na_sparse.append(tf.one_hot(na_val, na_dim, axis=-1))
+            na_sparse = tf.concat(na_sparse, 1)
         h = tf.concat([h, na_sparse], 1)
         v = fc(h, name, 1, act=lambda x: x)
         return v
 
 
 class LstmPolicy(Policy):
-    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None):
-        super().__init__(n_a, n_s, n_step, 'lstm', name)
+    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None,
+                 na_dim_ls=None, identical=True):
+        super().__init__(n_a, n_s, n_step, 'lstm', name, identical)
+        if not self.identical:
+            self.na_dim_ls = na_dim_ls
         self.n_lstm = n_lstm
         self.n_fc = n_fc
         self.n_n = n_n
@@ -138,8 +149,10 @@ class LstmPolicy(Policy):
 
 
 class FPPolicy(LstmPolicy):
-    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None):
-        super().__init__(n_s, n_a, n_n, n_step, n_fc, n_lstm, name)
+    def __init__(self, n_s, n_a, n_n, n_step, n_fc=64, n_lstm=64, name=None,
+                 na_dim_ls=None, identical=True):
+        super().__init__(n_s, n_a, n_n, n_step, n_fc, n_lstm, name,
+                         na_dim_ls, identical)
 
     def _build_net(self, in_type):
         if in_type == 'forward':
@@ -150,7 +163,10 @@ class FPPolicy(LstmPolicy):
             ob = self.ob_bw
             done = self.done_bw
             naction = self.naction_bw
-        n_x = int(self.n_s - self.n_n * self.n_a)
+        if self.identical:
+            n_x = int(self.n_s - self.n_n * self.n_a)
+        else:
+            n_x = int(self.n_s - sum(self.na_dim_ls))
         hx = fc(ob[:,:n_x], 'fcs', self.n_fc)
         hp = fc(ob[:,n_x:], 'fcp', self.n_fc)
         h = tf.concat([hx, hp], axis=1)
@@ -164,8 +180,9 @@ class NCMultiAgentPolicy(Policy):
     """ Inplemented as a centralized agent. To simplify the implementation, all input
     and output dimensions are identical among all agents, and invalid values are casted as
     zeros during runtime."""
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        super().__init__(n_a, n_s, n_step, 'nc', None)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 na_dim_ls=None, identical=True):
+        super().__init__(n_a, n_s, n_step, 'nc', None, identical)
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
@@ -280,8 +297,9 @@ class NCMultiAgentPolicy(Policy):
 
 
 class ConsensusPolicy(NCMultiAgentPolicy):
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        Policy.__init__(self, n_a, n_s, n_step, 'cu', None)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 na_dim_ls=None, identical=True):
+        Policy.__init__(self, n_a, n_s, n_step, 'cu', None, identical)
         self.n_agent = n_agent
         self.n_h = n_h
         self.neighbor_mask = neighbor_mask
@@ -315,11 +333,12 @@ class ConsensusPolicy(NCMultiAgentPolicy):
         v_ls = []
         new_states_ls = []
         for i in range(self.n_agent):
-            h = fc(ob[i], 'fc_%d' % i, self.n_h)
-            h, new_states = lstm(h, done, self.states[i], 'lstm_%d' % i)
-            pi = self._build_actor_head(h, agent_name='%d' % i)
+            h = fc(ob[i], 'fc_%da' % i, self.n_h)
+            h, new_states = lstm(h, done, self.states[i], 'lstm_%da' % i)
+            pi = self._build_actor_head(h, agent_name='%da' % i)
             naction = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i]))
-            v = self._build_critic_head(h, naction, n_n=int(np.sum(self.neighbor_mask[i])), agent_name='%d' % i)
+            v = self._build_critic_head(h, naction, n_n=int(np.sum(self.neighbor_mask[i])),
+                                        agent_name='%da' % i)
             pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
             new_states_ls.append(tf.expand_dims(new_states, axis=0))
@@ -334,7 +353,7 @@ class ConsensusPolicy(NCMultiAgentPolicy):
         wt_i = []
         wt_n = []
         for i in agents:
-            critic_scope = [self.name + ('/lstm_%d' % i)]
+            critic_scope = [self.name + ('/lstm_%da' % i)]
             wt = []
             for scope in critic_scope:
                 wt += tf.trainable_variables(scope=scope)
@@ -358,8 +377,9 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
     """Reference code: https://github.com/IC3Net/IC3Net/blob/master/comm.py.
        Note in IC3, the message is generated from hidden state only, so current state
        and neigbor policies are not included in the inputs."""
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        Policy.__init__(self, n_a, n_s, n_step, 'ic3', None)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 na_dim_ls=None, identical=True):
+        Policy.__init__(self, n_a, n_s, n_step, 'ic3', None, identical)
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def _build_net(self, in_type):
@@ -386,8 +406,9 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
 
 
 class DIALMultiAgentPolicy(NCMultiAgentPolicy):
-    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64):
-        Policy.__init__(self, n_a, n_s, n_step, 'dial', None)
+    def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
+                 na_dim_ls=None, identical=True):
+        Policy.__init__(self, n_a, n_s, n_step, 'dial', None, identical)
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def _build_net(self, in_type):

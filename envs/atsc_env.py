@@ -275,14 +275,16 @@ class TrafficSimulator:
     def _init_action_space(self):
         # for local and neighbor coop level
         self.n_agent = self.n_node
-        # to simplify the sim, we assume all agents have the same action dim
-        phase_id = self._get_node_phase_id('all')
-        phase_num = self.phase_map.get_phase_num(phase_id)
-        self.n_a = phase_num
+        # to simplify the sim, we assume all agents have the max action dim,
+        # with tailing zeros during run time
+        self.n_a_ls = []
         for node_name in self.node_names:
             node = self.nodes[node_name]
+            phase_id = self._get_node_phase_id(node_name)
+            phase_num = self.phase_map.get_phase_num(phase_id)
             node.phase_id = phase_id
             node.n_a = phase_num
+            self.n_a_ls.append(phase_num)
 
     def _init_map(self):
         # needs to be overwriteen
@@ -352,11 +354,9 @@ class TrafficSimulator:
 
     def _init_state_space(self):
         self._reset_state()
-        n_s_ls = []
+        self.n_s_ls = []
         for node_name in self.node_names:
             node = self.nodes[node_name]
-            # fingerprint is previous policy
-            node.num_fingerprint = self.n_a
             node.num_state = len(node.ilds_in)
             num_wave = node.num_state
             num_wait = 0 if 'wait' not in self.state_names else node.num_state
@@ -364,13 +364,7 @@ class TrafficSimulator:
                 num_n = 1
             else:
                 num_n = 1 + len(node.neighbor)
-            n_s_ls.append(num_wait + num_wave * num_n)
-        if self.agent.startswith('ma2c'):
-            # relaxed for realnet env
-            # assert len(set(n_s_ls)) == 1
-            self.n_s = max(n_s_ls)
-        else:
-            self.n_s_ls = n_s_ls
+            self.n_s_ls.append(num_wait + num_wave * num_n)
 
     def _measure_reward_step(self):
         rewards = []

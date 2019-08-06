@@ -1,3 +1,4 @@
+import configparser
 import logging
 import numpy as np
 import pandas as pd
@@ -90,7 +91,7 @@ class CACCEnv:
             df['headway_%d_m' % (i+1)] = hs[:, i]
             df['velocity_%d_mps' % (i+1)] = vs[:, i]
             df['accel_%d_mps2' % (i+1)] = us[:, i]
-        self.taffic_data.append(df)
+        self.traffic_data.append(df)
 
     def collect_tripinfo(self):
         return
@@ -208,6 +209,8 @@ class CACCEnv:
         global_reward = np.sum(reward)
         self.rewards.append(global_reward)
         done = False
+        if self.collision and not self.t % self.batch_size:
+            done = True
         if self.t == self.T:
             done = True
         if self.coop_gamma < 0:
@@ -238,10 +241,11 @@ class CACCEnv:
                 self.neighbor_mask[i,i-1] = 1
             if i <= self.n_agent-2:
                 self.neighbor_mask[i,i+1] = 1
-        # six levels of high level control: conservative -> aggressive
-        self.n_a = 6
-        a_interval = (self.h_go - self.st) / (self.n_a*0.5)
-        self.a_map = np.arange(1, self.n_a+1)*a_interval + self.h_st
+        # 9 levels of high level control: conservative -> aggressive
+        self.n_a = 9
+        a_interval = (self.h_g - self.h_s) / ((self.n_a+1)*0.5)
+        self.a_map = np.arange(1, self.n_a+1)*a_interval + self.h_s
+        logging.info('action to h_go map:\n %r' % self.a_map)
         n_s_ls = []
         for i in range(self.n_agent):
             if self.agent.startswith('ma2c'):
@@ -281,8 +285,9 @@ class CACCEnv:
         self.v0s[:len(v0s_decel)] = v0s_decel
 
     def _load_config(self, config):
-        self.dt = config.getfloat('delta_t')
-        self.T = config.getint('episode_length_sec') * self.dt
+        self.dt = config.getfloat('control_interval_sec')
+        self.T = int(config.getint('episode_length_sec') / self.dt)
+        self.batch_size = config.getint('batch_size')
         self.h_min = config.getfloat('headway_min')
         self.h_star = config.getfloat('headway_target')
         self.h_norm = config.getfloat('norm_headway')
@@ -296,8 +301,7 @@ class CACCEnv:
         self.name = config.get('scenario').split('_')[1]
         self.a = config.getfloat('reward_v')
         self.b = config.getfloat('reward_u')
-        self.G = config.getfloat('penalty')
-        self.nrange = config.getint('d_neighbor')
+        self.G = config.getfloat('collision_penalty')
         self.n_agent = config.getint('n_vehicle')
         self.agent = config.get('agent')
         self.coop_gamma = config.getfloat('coop_gamma')
@@ -344,3 +348,17 @@ class OVMCarFollowing:
         # alpha is applied to both headway based V and leading speed based V.
         return alpha*(vh-v) + beta*(v_lead-v)
 
+
+if __name__ == '__main__':
+    output_path = '/home/tchu/temp_output/'
+    config_path = './config/config_ma2c_nc_cacc.ini'
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    env = CACCEnv(config['ENV_CONFIG'])
+    env.init_data(True, False, output_path)
+    ob = env.reset()
+    while True:
+        ob, _, done, _ = env.step([1]*(env.n_agent))
+        if done:
+            break
+    env.output_data()
