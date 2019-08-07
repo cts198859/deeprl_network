@@ -199,13 +199,8 @@ class MA2C_NC(IA2C):
             self.trans_buffer.add_transition(np.array(ob), np.array(p), action,
                                              reward, value, done)
         else:
-            dummy_ob = np.zeros((self.n_agent, self.n_s))
-            dummy_p = np.zeros((self.n_agent, self.n_a))
-            for i in range(self.n_agent):
-                cur_len = len(ob[i])
-                dummy_ob[i, :cur_len] = ob[i]
-                dummy_p[i, :cur_len] = p[i]
-            self.trans_buffer.add_transition(dummy_ob, dummy_p, action,
+            pad_ob, pad_p = self._convert_hetero_states(ob, p)
+            self.trans_buffer.add_transition(pad_ob, pad_p, action,
                                              reward, value, done)
 
     def backward(self, Rends, dt, summary_writer=None, global_step=None):
@@ -215,7 +210,22 @@ class MA2C_NC(IA2C):
                              summary_writer=summary_writer, global_step=global_step)
 
     def forward(self, obs, done, ps, actions=None, out_type='p'):
-        return self.policy.forward(self.sess, obs, done, ps, actions, out_type)
+        if self.identical_agent:
+            return self.policy.forward(self.sess, np.array(obs), done, np.array(ps),
+                                       actions, out_type)
+        else:
+            pad_ob, pad_p = self._convert_hetero_states(obs, ps)
+            return self.policy.forward(self.sess, pad_ob, done, pad_p,
+                                       actions, out_type)
+
+    def _convert_hetero_states(self, ob, p):
+        pad_ob = np.zeros((self.n_agent, self.n_s))
+        pad_p = np.zeros((self.n_agent, self.n_a))
+        for i in range(self.n_agent):
+            cur_len = len(ob[i])
+            pad_ob[i, :cur_len] = ob[i]
+            pad_p[i, :cur_len] = p[i]
+        return pad_ob, pad_p
 
     def _init_policy(self):
         if self.identical_agent:
