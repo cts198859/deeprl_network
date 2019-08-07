@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import os
 
-from envs.real_net_env import RealNetEnv
+# from envs.real_net_env import RealNetEnv
 
 ILD_POS = 50
 
@@ -152,16 +152,16 @@ def output_ild(env, ild):
     return str_adds
 
 
-if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s [%(levelname)s] %(message)s',
-                        level=logging.INFO)
-    config = configparser.ConfigParser()
-    config.read('./config/config_ia2c_real.ini')
-    base_dir = './output_result/'
+# if __name__ == '__main__':
+#     logging.basicConfig(format='%(asctime)s [%(levelname)s] %(message)s',
+#                         level=logging.INFO)
+#     config = configparser.ConfigParser()
+#     config.read('./config/config_ia2c_real.ini')
+#     base_dir = './output_result/'
     # if not os.path.exists(base_dir):
     #     os.mkdir(base_dir)
-    env = RealNetEnv(config['ENV_CONFIG'])
+    # env = RealNetEnv(config['ENV_CONFIG'])
     # add.xml file
-    ild = '  <laneAreaDetector file="ild.out" freq="1" id="%s" lane="%s" pos="%d" endPos="%d"/>\n'
-    write_file('./envs/real_net_data/in/most.add.xml', output_ild(env, ild))
-    env.terminate()
+    # ild = '  <laneAreaDetector file="ild.out" freq="1" id="%s" lane="%s" pos="%d" endPos="%d"/>\n'
+    # write_file('./envs/real_net_data/in/most.add.xml', output_ild(env, ild))
+    # env.terminate()

@@ -12,7 +12,7 @@ import seaborn as sns
 import time
 from collections import deque
 from envs.atsc_env import PhaseMap, PhaseSet, TrafficSimulator
-# from envs.real_net_data.build_file import gen_rou_file
+from envs.real_net_data.build_file import gen_rou_file
 
 sns.set_color_codes()
 
@@ -164,11 +164,10 @@ class RealNetEnv(TrafficSimulator):
 
     def _init_sim_config(self, seed):
         # comment out to call build_file.py
-        # return gen_rou_file(self.data_path,
-        #                     self.flow_rate,
-        #                     seed=seed,
-        #                     thread=self.sim_thread)
-        return
+        return gen_rou_file(self.data_path,
+                            self.flow_rate,
+                            seed=seed,
+                            thread=self.sim_thread)
 
     def plot_stat(self, rewards):
         self.state_stat['reward'] = rewards

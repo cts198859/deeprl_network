@@ -100,7 +100,7 @@ class TrafficSimulator:
         self.init_test_seeds(test_seeds)
         self._init_sim(self.seed)
         self._init_nodes()
-        self.terminate()
+        # self.terminate()
 
     def collect_tripinfo(self):
         # read trip xml, has to be called externally to get complete file
@@ -336,7 +336,10 @@ class TrafficSimulator:
         command += ['--seed', str(seed)]
         command += ['--remote-port', str(self.port)]
         command += ['--no-step-log', 'True']
-        command += ['--time-to-teleport', '600'] # long teleport for safety
+        if self.name != 'atsc_real_net':
+            command += ['--time-to-teleport', '600'] # long teleport for safety
+        else:
+            command += ['--time-to-teleport', '300']
         command += ['--no-warnings', 'True']
         command += ['--duration-log.disable', 'True']
         # collect trip info if necessary
@@ -373,12 +376,18 @@ class TrafficSimulator:
             waits = []
             for ild in self.nodes[node_name].ilds_in:
                 if self.obj in ['queue', 'hybrid']:
-                    cur_queue = self.sim.lanearea.getLastStepHaltingNumber(ild)
+                    if self.name == 'atsc_real_net':
+                        cur_queue = min(10, self.sim.lane.getLastStepHaltingNumber(ild))
+                    else:
+                        cur_queue = self.sim.lanearea.getLastStepHaltingNumber(ild)
                     queues.append(cur_queue)
                 if self.obj in ['wait', 'hybrid']:
                     max_pos = 0
                     car_wait = 0
-                    cur_cars = self.sim.lanearea.getLastStepVehicleIDs(ild)
+                    if self.name == 'atsc_real_net':
+                        cur_cars = self.sim.lane.getLastStepVehicleIDs(ild)
+                    else:
+                        cur_cars = self.sim.lanearea.getLastStepVehicleIDs(ild)
                     for vid in cur_cars:
                         car_pos = self.sim.vehicle.getLanePosition(vid)
                         if car_pos > max_pos:
@@ -403,7 +412,10 @@ class TrafficSimulator:
                 if state_name == 'wave':
                     cur_state = []
                     for ild in node.ilds_in:
-                        cur_wave = self.sim.lanearea.getLastStepVehicleNumber(ild)
+                        if self.name == 'atsc_real_net':
+                            cur_wave = self.sim.lane.getLastStepVehicleNumber(ild)
+                        else:
+                            cur_wave = self.sim.lanearea.getLastStepVehicleNumber(ild)
                         cur_state.append(cur_wave)
                     cur_state = np.array(cur_state)
                 elif state_name == 'wait':
@@ -411,7 +423,10 @@ class TrafficSimulator:
                     for ild in node.ilds_in:
                         max_pos = 0
                         car_wait = 0
-                        cur_cars = self.sim.lanearea.getLastStepVehicleIDs(ild)
+                        if self.name == 'atsc_real_net':
+                            cur_cars = self.sim.lane.getLastStepVehicleIDs(ild)
+                        else:
+                            cur_cars = self.sim.lanearea.getLastStepVehicleIDs(ild)
                         for vid in cur_cars:
                             car_pos = self.sim.vehicle.getLanePosition(vid)
                             if car_pos > max_pos:
