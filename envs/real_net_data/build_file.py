@@ -113,7 +113,7 @@ def output_config(thread=None):
     str_config = '<configuration>\n  <input>\n'
     str_config += '    <net-file value="in/most.net.xml"/>\n'
     str_config += '    <route-files value="in/%s"/>\n' % out_file
-    str_config += '    <additional-files value="in/most.add.xml"/>\n'
+    # str_config += '    <additional-files value="in/most.add.xml"/>\n'
     str_config += '  </input>\n  <time>\n'
     str_config += '    <begin value="0"/>\n    <end value="3600"/>\n'
     str_config += '  </time>\n</configuration>\n'

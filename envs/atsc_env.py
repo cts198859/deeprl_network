@@ -100,7 +100,7 @@ class TrafficSimulator:
         self.init_test_seeds(test_seeds)
         self._init_sim(self.seed)
         self._init_nodes()
-        # self.terminate()
+        self.terminate()
 
     def collect_tripinfo(self):
         # read trip xml, has to be called externally to get complete file
@@ -361,13 +361,13 @@ class TrafficSimulator:
         for node_name in self.node_names:
             node = self.nodes[node_name]
             node.num_state = len(node.ilds_in)
+        for node_name in self.node_names:
             num_wave = node.num_state
             num_wait = 0 if 'wait' not in self.state_names else node.num_state
-            if self.agent.startswith('ma2c'):
-                num_n = 1
-            else:
-                num_n = 1 + len(node.neighbor)
-            self.n_s_ls.append(num_wait + num_wave * num_n)
+            if not self.agent.startswith('ma2c'):
+                for nnode_name in node.neighbor:
+                    num_wave += self.nodes[nnode_name].num_state
+            self.n_s_ls.append(num_wait + num_wave)
 
     def _measure_reward_step(self):
         rewards = []
