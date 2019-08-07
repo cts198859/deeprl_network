@@ -154,7 +154,7 @@ class RealNetEnv(TrafficSimulator):
         logging.info('distance mask:\n %r' % self.distance_mask)
 
     def _init_map(self):
-        self.node_names = list(NODES.keys())
+        self.node_names = sorted(list(NODES.keys()))
         self.n_node = len(self.node_names)
         self._init_neighbor_map()
         self._init_distance_map()

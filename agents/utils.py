@@ -295,13 +295,13 @@ def lstm_comm_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
             raw_pi = tf.boolean_mask(p, masks[i]) # n_n*n_a
             raw_xi = tf.boolean_mask(x, masks[i])
             pi = []
-            xi = [tf.expand_dims(x[i], axis=0)]
+            xi = [tf.slice(x, [i, 0], [1, n_s_ls[i]])]
             # find the valid information based on each agent's s, a dim
             for j in range(len(ns_dim_ls[i])):
-                pi.append(tf.slice(raw_pi, [j, 0], [1, na_dim_ls[i]]))
-                xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i]]))
-            pi = tf.concat(raw_pi, axis=1)
-            xi = tf.concat(raw_xi, axis=1)
+                pi.append(tf.slice(raw_pi, [j, 0], [1, na_dim_ls[i][j]]))
+                xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i][j]]))
+            pi = tf.concat(pi, axis=1)
+            xi = tf.concat(xi, axis=1)
             hxi = tf.nn.relu(tf.matmul(xi, w_ob[i]) + b_ob[i])
             hpi = tf.nn.relu(tf.matmul(pi, w_fp[i]) + b_fp[i])
             hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
