@@ -272,8 +272,12 @@ class NCMultiAgentPolicy(Policy):
             h_i = h[i] # Txn_h
             naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
             pi = self._build_actor_head(h_i, agent_name='%d' % i)
-            self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
-            v = self._build_critic_head(h_i, naction_i, n_n=len(self.na_dim_ls), agent_name='%d' % i)
+            if self.identical:
+                n_n = int(np.sum(self.neighbor_mask[i]))
+            else:
+                self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
+                n_n = len(self.na_dim_ls)
+            v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
             pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
         return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
@@ -305,8 +309,11 @@ class NCMultiAgentPolicy(Policy):
 
 class ConsensusPolicy(NCMultiAgentPolicy):
     def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
-                 na_dim_ls=None, identical=True):
+                 n_s_ls=None, n_a_ls=None, identical=True):
         Policy.__init__(self, n_a, n_s, n_step, 'cu', None, identical)
+        if not self.identical:
+            self.n_s_ls = n_s_ls
+            self.n_a_ls = n_a_ls
         self.n_agent = n_agent
         self.n_h = n_h
         self.neighbor_mask = neighbor_mask
@@ -343,9 +350,13 @@ class ConsensusPolicy(NCMultiAgentPolicy):
             h = fc(ob[i], 'fc_%da' % i, self.n_h)
             h, new_states = lstm(h, done, self.states[i], 'lstm_%da' % i)
             pi = self._build_actor_head(h, agent_name='%da' % i)
+            if self.identical:
+                n_n = int(np.sum(self.neighbor_mask[i]))
+            else:
+                self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
+                n_n = len(self.na_dim_ls)
             naction = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i]))
-            v = self._build_critic_head(h, naction, n_n=int(np.sum(self.neighbor_mask[i])),
-                                        agent_name='%da' % i)
+            v = self._build_critic_head(h, naction, n_n=n_n, agent_name='%da' % i)
             pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
             new_states_ls.append(tf.expand_dims(new_states, axis=0))
@@ -385,8 +396,11 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
        Note in IC3, the message is generated from hidden state only, so current state
        and neigbor policies are not included in the inputs."""
     def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
-                 na_dim_ls=None, identical=True):
+                 n_s_ls=None, n_a_ls=None, identical=True):
         Policy.__init__(self, n_a, n_s, n_step, 'ic3', None, identical)
+        if not self.identical:
+            self.n_s_ls = n_s_ls
+            self.n_a_ls = n_a_ls
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def _build_net(self, in_type):
@@ -404,9 +418,13 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
         for i in range(self.n_agent):
             h_i = h[i] # Txn_h
             naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
+            if self.identical:
+                n_n = int(np.sum(self.neighbor_mask[i]))
+            else:
+                self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
+                n_n = len(self.na_dim_ls)
             pi = self._build_actor_head(h_i, agent_name='%d' % i)
-            v = self._build_critic_head(h_i, naction_i, n_n=int(np.sum(self.neighbor_mask[i])),
-                                        agent_name='%d' % i)
+            v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
             pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
         return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
@@ -414,8 +432,11 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
 
 class DIALMultiAgentPolicy(NCMultiAgentPolicy):
     def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
-                 na_dim_ls=None, identical=True):
+                 n_s_ls=None, n_a_ls=None, identical=True):
         Policy.__init__(self, n_a, n_s, n_step, 'dial', None, identical)
+        if not self.identical:
+            self.n_s_ls = n_s_ls
+            self.n_a_ls = n_a_ls
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def _build_net(self, in_type):
@@ -435,9 +456,13 @@ class DIALMultiAgentPolicy(NCMultiAgentPolicy):
         for i in range(self.n_agent):
             h_i = h[i] # Txn_h
             naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
+            if self.identical:
+                n_n = int(np.sum(self.neighbor_mask[i]))
+            else:
+                self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
+                n_n = len(self.na_dim_ls)
             pi = self._build_actor_head(h_i, agent_name='%d' % i)
-            v = self._build_critic_head(h_i, naction_i, n_n=int(np.sum(self.neighbor_mask[i])),
-                                        agent_name='%d' % i)
+            v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
             pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
         return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
