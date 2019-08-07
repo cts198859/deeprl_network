@@ -75,7 +75,7 @@ def output_flows(flow_rate, seed=None):
 
     flow_str = '  <flow id="f%s" departPos="random_free" from="%s" to="%s" via="%s" begin="%d" end="%d" vehsPerHour="%d" type="car"/>\n'
     output = '<routes>\n'
-    output += '  <vType id="car" length="5" accel="5" decel="10" tau="0.5" speedDev="0.1"/>\n'
+    output += '  <vType id="car" length="5" accel="5" decel="10" speedDev="0.1"/>\n'
 
     for i in range(len(times) - 1):
         name = str(i)

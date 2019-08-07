@@ -87,6 +87,9 @@ class IA2C:
             self.identical_agent = True
             self.n_s = n_s_ls[0]
             self.n_a = n_a_ls[0]
+        else:
+            self.n_s = max(self.n_s_ls)
+            self.n_a = max(self.n_a_ls)
         self.neighbor_mask = neighbor_mask
         self.n_agent = len(self.neighbor_mask)
         self.reward_clip = model_config.getfloat('reward_clip')
@@ -192,7 +195,18 @@ class MA2C_NC(IA2C):
             reward = reward / self.reward_norm
         if self.reward_clip > 0:
             reward = np.clip(reward, -self.reward_clip, self.reward_clip)
-        self.trans_buffer.add_transition(ob, p, action, reward, value, done)
+        if self.identical_agent:
+            self.trans_buffer.add_transition(np.array(ob), np.array(p), action,
+                                             reward, value, done)
+        else:
+            dummy_ob = np.zeros((self.n_agent, self.n_s))
+            dummy_p = np.zeros((self.n_agent, self.n_a))
+            for i in range(self.n_agent):
+                cur_len = len(ob[i])
+                dummy_ob[i, :cur_len] = ob[i]
+                dummy_p[i, :cur_len] = p[i]
+            self.trans_buffer.add_transition(dummy_ob, dummy_p, action,
+                                             reward, value, done)
 
     def backward(self, Rends, dt, summary_writer=None, global_step=None):
         cur_lr = self.lr_scheduler.get(self.n_step)
@@ -204,8 +218,13 @@ class MA2C_NC(IA2C):
         return self.policy.forward(self.sess, obs, done, ps, actions, out_type)
 
     def _init_policy(self):
-        return NCMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
-                                  self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        if self.identical_agent:
+            return NCMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                      self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        else:
+            return NCMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                      self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                                      n_s_ls=self.n_s_ls, n_a_ls=self.n_a_ls, identical=False)
 
     def _init_train(self, model_config, distance_mask, coop_gamma):
         # init lr scheduler
@@ -230,8 +249,13 @@ class IA2C_CU(MA2C_NC):
                         total_step, seed, model_config)
 
     def _init_policy(self):
-        return ConsensusPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
-                               self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        if self.identical_agent:
+            return ConsensusPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                   self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        else:
+            return ConsensusPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                   self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                                   n_s_ls=self.n_s_ls, n_a_ls=self.n_a_ls, identical=False)
 
 
 class MA2C_IC3(MA2C_NC):
@@ -242,8 +266,13 @@ class MA2C_IC3(MA2C_NC):
                         total_step, seed, model_config)
 
     def _init_policy(self):
-        return IC3MultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
-                                   self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        if self.identical_agent:
+            return IC3MultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                       self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        else:
+            return IC3MultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                       self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                                       n_s_ls=self.n_s_ls, n_a_ls=self.n_a_ls, identical=False)
 
 
 class MA2C_DIAL(MA2C_NC):
@@ -254,5 +283,10 @@ class MA2C_DIAL(MA2C_NC):
                         total_step, seed, model_config)
 
     def _init_policy(self):
-        return DIALMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
-                                    self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        if self.identical_agent:
+            return DIALMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                        self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm)
+        else:
+            return DIALMultiAgentPolicy(self.n_s, self.n_a, self.n_agent, self.n_step,
+                                        self.neighbor_mask, n_fc=self.n_fc, n_h=self.n_lstm,
+                                        n_s_ls=self.n_s_ls, n_a_ls=self.n_a_ls, identical=False)

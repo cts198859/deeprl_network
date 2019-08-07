@@ -114,88 +114,8 @@ def lstm(xs, dones, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
     s = tf.concat(axis=1, values=[c, h])
     return seq_to_batch(xs), tf.squeeze(s)
 
-
 def lstm_comm(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
               init_method=DEFAULT_METHOD):
-    n_agent = s.shape[0]
-    n_h = s.shape[1] // 2
-    n_s = xs.shape[-1]
-    n_a = ps.shape[-1]
-    xs = tf.transpose(xs, perm=[1,0,2]) # TxNxn_s
-    xs = batch_to_seq(xs)
-    ps = tf.transpose(ps, perm=[1,0,2]) # TxNxn_a
-    ps = batch_to_seq(ps)
-    # need dones to reset states
-    dones = batch_to_seq(dones) # Tx1
-    # create wts
-    n_in_msg = n_h + n_s + n_a
-    w_msg = []
-    b_msg = []
-    wx_hid = []
-    wh_hid = []
-    b_hid = []
-    for i in range(n_agent):
-        n_m = np.sum(masks[i])
-        n_in_hid = n_s + n_h*n_m
-        with tf.variable_scope(scope + ('_%d' % i)):
-            w_msg.append(tf.get_variable("w_msg", [n_in_msg, n_h],
-                                         initializer=init_method(init_scale, init_mode)))
-            b_msg.append(tf.get_variable("b_msg", [n_h],
-                                         initializer=tf.constant_initializer(0.0)))
-            wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
-                                          initializer=init_method(init_scale, init_mode)))
-            wh_hid.append(tf.get_variable("wh_hid", [n_h, n_h*4],
-                                          initializer=init_method(init_scale, init_mode)))
-            b_hid.append(tf.get_variable("b_hid", [n_h*4],
-                                         initializer=tf.constant_initializer(0.0)))
-    c, h = tf.split(axis=1, num_or_size_splits=2, value=s)
-    # loop over steps
-    for t, (x, p, done) in enumerate(zip(xs, ps, dones)):
-        # abuse 1 agent as 1 step
-        x = batch_to_seq(tf.squeeze(x, axis=0))
-        p = batch_to_seq(tf.squeeze(p, axis=0))
-        out_h = []
-        out_c = []
-        out_m = []
-        # communication phase
-        for i, (xi, pi) in enumerate(zip(x, p)):
-            hi = tf.expand_dims(h[i], axis=0)
-            si = tf.concat([hi, xi, pi], axis=1)
-            mi = tf.nn.relu(tf.matmul(si, w_msg[i]) + b_msg[i])
-            out_m.append(mi)
-        out_m = tf.concat(out_m, axis=0) # Nxn_h
-        # hidden phase
-        for i, xi in enumerate(x):
-            ci = tf.expand_dims(c[i], axis=0)
-            hi = tf.expand_dims(h[i], axis=0)
-            # reset states for a new episode
-            ci = ci * (1-done)
-            hi = hi * (1-done)
-            # receive neighbor messages
-            mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
-            # TODO: add additional encoding layers here
-            si = tf.concat([xi, mi], axis=1)
-            zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
-            ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
-            ii = tf.nn.sigmoid(ii)
-            fi = tf.nn.sigmoid(fi)
-            oi = tf.nn.sigmoid(oi)
-            ui = tf.tanh(ui)
-            ci = fi*ci + ii*ui
-            hi = oi*tf.tanh(ci)
-            out_h.append(hi)
-            out_c.append(ci)
-        c = tf.concat(out_c, axis=0)
-        h = tf.concat(out_h, axis=0)
-        xs[t] = tf.expand_dims(h, axis=0)
-    s = tf.concat(axis=1, values=[c, h])
-    xs = seq_to_batch(xs) # TxNxn_h
-    xs = tf.transpose(xs, perm=[1,0,2]) # NxTxn_h
-    return xs, s
-
-
-def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
-                  init_method=DEFAULT_METHOD):
     n_agent = s.shape[0]
     n_h = s.shape[1] // 2
     n_s = xs.shape[-1]
@@ -277,6 +197,115 @@ def lstm_comm_new(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init
             hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
             si = tf.concat([hxi, hpi, hmi], axis=1)
             # si = tf.concat([hxi, hmi], axis=1)
+            zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
+            ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
+            ii = tf.nn.sigmoid(ii)
+            fi = tf.nn.sigmoid(fi)
+            oi = tf.nn.sigmoid(oi)
+            ui = tf.tanh(ui)
+            ci = fi*ci + ii*ui
+            hi = oi*tf.tanh(ci)
+            out_h.append(hi)
+            out_c.append(ci)
+        c = tf.concat(out_c, axis=0)
+        h = tf.concat(out_h, axis=0)
+        xs[t] = tf.expand_dims(h, axis=0)
+    s = tf.concat(axis=1, values=[c, h])
+    xs = seq_to_batch(xs) # TxNxn_h
+    xs = tf.transpose(xs, perm=[1,0,2]) # NxTxn_h
+    return xs, s
+
+def lstm_comm_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=DEFAULT_SCALE,
+                     init_mode=DEFAULT_MODE, init_method=DEFAULT_METHOD):
+    n_agent = s.shape[0]
+    n_h = s.shape[1] // 2
+    xs = tf.transpose(xs, perm=[1,0,2]) # TxNxn_s
+    xs = batch_to_seq(xs)
+    ps = tf.transpose(ps, perm=[1,0,2]) # TxNxn_a
+    ps = batch_to_seq(ps)
+    # need dones to reset states
+    dones = batch_to_seq(dones) # Tx1
+    # create wts
+    w_msg = []
+    b_msg = []
+    w_ob = []
+    b_ob = []
+    w_fp = []
+    b_fp = []
+    wx_hid = []
+    wh_hid = []
+    b_hid = []
+    n_in_hid = 3*n_h
+    na_dim_ls = []
+    ns_dim_ls = []
+    for i in range(n_agent):
+        n_s = n_s_ls[i]
+        n_fp = 0
+        n_m = 0
+        na_dim = []
+        ns_dim = []
+        for j in np.where(masks[i])[0]:
+            n_s += n_s_ls[j]
+            n_m += 1
+            n_fp += n_a_ls[j]
+            na_dim.append(n_a_ls[j])
+            ns_dim.append(n_s_ls[j])
+        na_dim_ls.append(na_dim)
+        ns_dim_ls.append(ns_dim)
+        with tf.variable_scope(scope + ('_%d' % i)):
+            w_msg.append(tf.get_variable("w_msg", [n_h*n_m, n_h],
+                                         initializer=init_method(init_scale, init_mode)))
+            b_msg.append(tf.get_variable("b_msg", [n_h],
+                                         initializer=tf.constant_initializer(0.0)))
+            w_ob.append(tf.get_variable("w_ob", [n_s, n_h],
+                                        initializer=init_method(init_scale, init_mode)))
+            b_ob.append(tf.get_variable("b_ob", [n_h],
+                                        initializer=tf.constant_initializer(0.0)))
+            w_fp.append(tf.get_variable("w_fp", [n_fp, n_h],
+                                        initializer=init_method(init_scale, init_mode)))
+            b_fp.append(tf.get_variable("b_fp", [n_h],
+                                        initializer=tf.constant_initializer(0.0)))
+            wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
+                                          initializer=init_method(init_scale, init_mode)))
+            wh_hid.append(tf.get_variable("wh_hid", [n_h, n_h*4],
+                                          initializer=init_method(init_scale, init_mode)))
+            b_hid.append(tf.get_variable("b_hid", [n_h*4],
+                                         initializer=tf.constant_initializer(0.0)))
+    c, h = tf.split(axis=1, num_or_size_splits=2, value=s)
+    # loop over steps
+    for t, (x, p, done) in enumerate(zip(xs, ps, dones)):
+        # abuse 1 agent as 1 step
+        x = tf.squeeze(x, axis=0)
+        p = tf.squeeze(p, axis=0)
+        out_h = []
+        out_c = []
+        out_m = []
+        # communication phase
+        out_m = [tf.expand_dims(h[i], axis=0) for i in range(n_agent)]
+        out_m = tf.concat(out_m, axis=0) # Nxn_h
+        # hidden phase
+        for i in range(n_agent):
+            ci = tf.expand_dims(c[i], axis=0)
+            hi = tf.expand_dims(h[i], axis=0)
+            # reset states for a new episode
+            ci = ci * (1-done)
+            hi = hi * (1-done)
+            # receive neighbor messages
+            mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
+            raw_pi = tf.boolean_mask(p, masks[i]) # n_n*n_a
+            raw_xi = tf.boolean_mask(x, masks[i])
+            pi = []
+            xi = [tf.expand_dims(x[i], axis=0)]
+            # find the valid information based on each agent's s, a dim
+            for j in range(len(ns_dim_ls[i])):
+                pi.append(tf.slice(raw_pi, [j, 0], [1, na_dim_ls[i]]))
+                xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i]]))
+            pi = tf.concat(raw_pi, axis=1)
+            xi = tf.concat(raw_xi, axis=1)
+            hxi = tf.nn.relu(tf.matmul(xi, w_ob[i]) + b_ob[i])
+            hpi = tf.nn.relu(tf.matmul(pi, w_fp[i]) + b_fp[i])
+            hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
+            si = tf.concat([hxi, hpi, hmi], axis=1)
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
             ii = tf.nn.sigmoid(ii)

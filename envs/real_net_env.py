@@ -139,7 +139,7 @@ class RealNetEnv(TrafficSimulator):
 
     def _init_neighbor_map(self):
         self.neighbor_map = dict([(key, val[1]) for key, val in NODES.items()])
-        self.neighbor_mask = np.zeros((self.n_node, self.n_node))
+        self.neighbor_mask = np.zeros((self.n_node, self.n_node)).astype(int)
         for i, node_name in enumerate(self.node_names):
             for nnode in self.neighbor_map[node_name]:
                 ni = self.node_names.index(nnode)
@@ -147,7 +147,7 @@ class RealNetEnv(TrafficSimulator):
         logging.info('neighbor mask:\n %r' % self.neighbor_mask)
 
     def _init_distance_map(self):
-        self.distance_mask = np.zeros((self.n_node, self.n_node))
+        self.distance_mask = np.zeros((self.n_node, self.n_node)).astype(int)
         self.max_distance = 0
         for i in range(self.n_node):
             self.max_distance = max(self.max_distance, self._bfs(i))

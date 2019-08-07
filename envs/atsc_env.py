@@ -125,7 +125,7 @@ class TrafficSimulator:
         policies = []
         for node_name in self.node_names:
             policies.append(self.nodes[node_name].fingerprint)
-        return np.array(policies)
+        return policies
 
     def get_neighbor_action(self, action):
         naction = []

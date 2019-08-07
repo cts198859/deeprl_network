@@ -58,14 +58,14 @@ class Policy:
         name = 'v'
         if agent_name is not None:
             name += '_' + str(agent_name)
+        if n_n is None:
+            n_n = int(self.n_n)
         if self.identical:
-            if n_n is None:
-                n_n = na.shape[-1]
             na_sparse = tf.one_hot(na, self.n_a, axis=-1)
             na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
         else:
             na_sparse = []
-            na_ls = tf.split(axis=1, num_or_size_splits=int(self.n_n), value=na)
+            na_ls = tf.split(axis=1, num_or_size_splits=n_n, value=na)
             for na_val, na_dim in zip(na_ls, self.na_dim_ls):
                 na_sparse.append(tf.squeeze(tf.one_hot(na_val, na_dim, axis=-1), axis=1))
             na_sparse = tf.concat(na_sparse, 1)
@@ -177,12 +177,15 @@ class FPPolicy(LstmPolicy):
 
 
 class NCMultiAgentPolicy(Policy):
-    """ Inplemented as a centralized agent. To simplify the implementation, all input
+    """ Inplemented as a centralized meta-DNN. To simplify the implementation, all input
     and output dimensions are identical among all agents, and invalid values are casted as
     zeros during runtime."""
     def __init__(self, n_s, n_a, n_agent, n_step, neighbor_mask, n_fc=64, n_h=64,
-                 na_dim_ls=None, identical=True):
+                 n_s_ls=None, n_a_ls=None, identical=True):
         super().__init__(n_a, n_s, n_step, 'nc', None, identical)
+        if not self.identical:
+            self.n_s_ls = n_s_ls
+            self.n_a_ls = n_a_ls
         self._init_policy(n_agent, neighbor_mask, n_h)
 
     def backward(self, sess, obs, policies, acts, dones, Rs, Advs, cur_lr,
@@ -258,15 +261,19 @@ class NCMultiAgentPolicy(Policy):
             policy = self.policy_bw
             action = self.action_bw
             done = self.done_bw
-        h, new_states = lstm_comm_new(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
+        if self.identical:
+            h, new_states = lstm_comm(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
+        else:
+            h, new_states = lstm_comm_hetero(ob, policy, done, self.neighbor_mask, self.states,
+                                             self.n_s_ls, self.n_a_ls, 'lstm_comm')
         pi_ls = []
         v_ls = []
         for i in range(self.n_agent):
             h_i = h[i] # Txn_h
             naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
             pi = self._build_actor_head(h_i, agent_name='%d' % i)
-            v = self._build_critic_head(h_i, naction_i, n_n=int(np.sum(self.neighbor_mask[i])),
-                                        agent_name='%d' % i)
+            self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
+            v = self._build_critic_head(h_i, naction_i, n_n=len(self.na_dim_ls), agent_name='%d' % i)
             pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
         return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states

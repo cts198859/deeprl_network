@@ -129,7 +129,7 @@ class Trainer():
     def _get_policy(self, ob, done, mode='train'):
         if self.agent.startswith('ma2c'):
             self.ps = self.env.get_fingerprint()
-            policy = self.model.forward(np.array(ob), done, self.ps)
+            policy = self.model.forward(ob, done, self.ps)
         else:
             policy = self.model.forward(ob, done)
         action = []
@@ -142,7 +142,7 @@ class Trainer():
 
     def _get_value(self, ob, done, action):
         if self.agent.startswith('ma2c'):
-            value = self.model.forward(np.array(ob), done, self.ps, np.array(action), 'v')
+            value = self.model.forward(ob, done, self.ps, np.array(action), 'v')
         else:
             self.naction = self.env.get_neighbor_action(action)
             value = self.model.forward(ob, done, self.naction, 'v')
