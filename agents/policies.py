@@ -65,9 +65,9 @@ class Policy:
             na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
         else:
             na_sparse = []
-            na_ls = tf.split(axis=1, num_or_size_splits=self.n_n, value=na)
+            na_ls = tf.split(axis=1, num_or_size_splits=int(self.n_n), value=na)
             for na_val, na_dim in zip(na_ls, self.na_dim_ls):
-                na_sparse.append(tf.one_hot(na_val, na_dim, axis=-1))
+                na_sparse.append(tf.squeeze(tf.one_hot(na_val, na_dim, axis=-1), axis=1))
             na_sparse = tf.concat(na_sparse, 1)
         h = tf.concat([h, na_sparse], 1)
         v = fc(h, name, 1, act=lambda x: x)

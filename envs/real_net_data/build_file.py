@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import os
 
-# from envs.real_net_env import RealNetEnv
+from envs.real_net_env import RealNetEnv
 
 ILD_POS = 50
 
@@ -73,7 +73,7 @@ def output_flows(flow_rate, seed=None):
     vols_b = [0, 0, 0, 1, 2, 4, 4, 4, 4, 2, 1]
     times = np.arange(0, 3301, 300)
 
-    flow_str = '  <flow id="f:%s" departPos="random_free" from="%s" to="%s" via="%s" begin="%d" end="%d" vehsPerHour="%d" type="car"/>\n'
+    flow_str = '  <flow id="f%s" departPos="random_free" from="%s" to="%s" via="%s" begin="%d" end="%d" vehsPerHour="%d" type="car"/>\n'
     output = '<routes>\n'
     output += '  <vType id="car" length="5" accel="5" decel="10" tau="0.5" speedDev="0.1"/>\n'
 
@@ -137,7 +137,7 @@ def output_ild(env, ild):
         node = env.nodes[node_name]
         for ild_name in node.ilds_in:
             # ild_name = ild:lane_name
-            lane_name = ild_name[4:]
+            lane_name = ild_name
             l_len = env.sim.lane.getLength(lane_name)
             i_pos = min(ILD_POS, l_len - 1)
             if lane_name in ['gneE4_0', 'gneE5_0']:
@@ -156,12 +156,12 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s [%(levelname)s] %(message)s',
                         level=logging.INFO)
     config = configparser.ConfigParser()
-    config.read('./config/config_test_real.ini')
+    config.read('./config/config_ia2c_real.ini')
     base_dir = './output_result/'
-    if not os.path.exists(base_dir):
-        os.mkdir(base_dir)
-    env = RealNetEnv(config['ENV_CONFIG'], 2, base_dir, is_record=True, record_stat=True)
+    # if not os.path.exists(base_dir):
+    #     os.mkdir(base_dir)
+    env = RealNetEnv(config['ENV_CONFIG'])
     # add.xml file
     ild = '  <laneAreaDetector file="ild.out" freq="1" id="%s" lane="%s" pos="%d" endPos="%d"/>\n'
-    write_file('./real_net/data/in/most.add.xml', output_ild(env, ild))
+    write_file('./envs/real_net_data/in/most.add.xml', output_ild(env, ild))
     env.terminate()

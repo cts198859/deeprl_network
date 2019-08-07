@@ -324,7 +324,7 @@ class TrafficSimulator:
         self._init_state_space()
 
     def _init_policy(self):
-        return [np.ones(self.n_a) / self.n_a for _ in range(self.n_agent)]
+        return [np.ones(self.n_a_ls[i]) / self.n_a_ls[i] for i in range(self.n_agent)]
 
     def _init_sim(self, seed, gui=False):
         sumocfg_file = self._init_sim_config(seed)

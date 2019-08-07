@@ -86,7 +86,7 @@ def train(args):
 
     # init env
     env = init_env(config['ENV_CONFIG'])
-    logging.info('Training: a dim %d, agent dim: %d' % (env.n_a, env.n_agent))
+    logging.info('Training: a dim %r, agent dim: %d' % (env.n_a_ls, env.n_agent))
 
     # init step counter
     total_step = int(config.getfloat('TRAIN_CONFIG', 'total_step'))
