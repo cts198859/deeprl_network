@@ -315,8 +315,9 @@ class TrafficSimulator:
             nodes[node_name].ilds_in = ilds_in
         self.nodes = nodes
         s = 'Env: init %d node information:\n' % len(self.node_names)
-        for node in self.nodes.values():
-            s += node.name + ':\n'
+        for node_name in self.node_names:
+            s += node_name + ':\n'
+            node = self.nodes[node_name]
             s += '\tneigbor: %r\n' % node.neighbor
             s += '\tilds_in: %r\n' % node.ilds_in
         logging.info(s)
@@ -362,6 +363,7 @@ class TrafficSimulator:
             node = self.nodes[node_name]
             node.num_state = len(node.ilds_in)
         for node_name in self.node_names:
+            node = self.nodes[node_name]
             num_wave = node.num_state
             num_wait = 0 if 'wait' not in self.state_names else node.num_state
             if not self.agent.startswith('ma2c'):
