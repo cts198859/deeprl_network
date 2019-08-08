@@ -222,9 +222,8 @@ class MA2C_NC(IA2C):
         pad_ob = np.zeros((self.n_agent, self.n_s))
         pad_p = np.zeros((self.n_agent, self.n_a))
         for i in range(self.n_agent):
-            cur_len = len(ob[i])
-            pad_ob[i, :cur_len] = ob[i]
-            pad_p[i, :cur_len] = p[i]
+            pad_ob[i, :len(ob[i])] = ob[i]
+            pad_p[i, :len(p[i])] = p[i]
         return pad_ob, pad_p
 
     def _init_policy(self):

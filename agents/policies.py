@@ -47,11 +47,13 @@ class Policy:
         summaries.append(tf.summary.scalar('train/%s_gradnorm' % self.name, self.grad_norm))
         self.summary = tf.summary.merge(summaries)
 
-    def _build_actor_head(self, h, agent_name=None):
+    def _build_actor_head(self, h, n_a=None, agent_name=None):
         name = 'pi'
         if agent_name is not None:
             name += '_' + str(agent_name)
-        pi = fc(h, name, self.n_a, act=tf.nn.softmax)
+        if n_a is None:
+            n_a = self.n_a
+        pi = fc(h, name, n_a, act=tf.nn.softmax)
         return pi
 
     def _build_critic_head(self, h, na, n_n=None, agent_name=None):
@@ -223,12 +225,25 @@ class NCMultiAgentPolicy(Policy):
     def prepare_loss(self, v_coef, e_coef, max_grad_norm, alpha, epsilon):
         self.ADV = tf.placeholder(tf.float32, [self.n_agent, self.n_step])
         self.R = tf.placeholder(tf.float32, [self.n_agent, self.n_step])
-        A_sparse = tf.one_hot(self.action_bw, self.n_a)
         # all losses are averaged over steps but summed over agents
-        log_pi = tf.log(tf.clip_by_value(self.pi, 1e-10, 1.0))
-        entropy = -tf.reduce_sum(self.pi * log_pi, axis=-1)
+        if self.identical:
+            A_sparse = tf.one_hot(self.action_bw, self.n_a)
+            log_pi = tf.log(tf.clip_by_value(self.pi, 1e-10, 1.0))
+            entropy = -tf.reduce_sum(self.pi * log_pi, axis=-1) # NxT
+            prob_pi = tf.reduce_sum(log_pi * A_sparse, axis=-1) # NxT
+        else:
+            entropy = []
+            prob_pi = []
+            for i, pi_i in enumerate(self.pi):
+                action_i = tf.slice(self.action_bw, [i, 0], [1, self.n_step])
+                A_sparse_i = tf.one_hot(action_i, self.n_a_ls[i])
+                log_pi_i = tf.log(tf.clip_by_value(pi_i, 1e-10, 1.0))
+                entropy.append(tf.expand_dims(-tf.reduce_sum(pi_i * log_pi_i, axis=-1), axis=0))
+                prob_pi.append(tf.expand_dims(tf.reduce_sum(log_pi_i * A_sparse_i, axis=-1), axis=0))
+            entropy = tf.concat(entropy, axis=0)
+            prob_pi = tf.concat(prob_pi, axis=0)
         entropy_loss = -tf.reduce_sum(tf.reduce_mean(entropy, axis=-1)) * e_coef
-        policy_loss = -tf.reduce_sum(tf.reduce_mean(tf.reduce_sum(log_pi * A_sparse, axis=-1) * self.ADV, axis=-1))
+        policy_loss = -tf.reduce_sum(tf.reduce_mean(prob_pi * self.ADV, axis=-1))
         value_loss = tf.reduce_sum(tf.reduce_mean(tf.square(self.R - self.v), axis=-1)) * 0.5 * v_coef
         self.loss = policy_loss + value_loss + entropy_loss
 
@@ -271,16 +286,20 @@ class NCMultiAgentPolicy(Policy):
         for i in range(self.n_agent):
             h_i = h[i] # Txn_h
             naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
-            pi = self._build_actor_head(h_i, agent_name='%d' % i)
             if self.identical:
+                pi = self._build_actor_head(h_i, agent_name='%d' % i)
+                pi_ls.append(tf.expand_dims(pi, axis=0))
                 n_n = int(np.sum(self.neighbor_mask[i]))
             else:
+                pi = self._build_actor_head(h_i, n_a=self.n_a_ls[i], agent_name='%d' % i)
+                pi_ls.append(tf.squeeze(pi))
                 self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
                 n_n = len(self.na_dim_ls)
             v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
-            pi_ls.append(tf.expand_dims(pi, axis=0))
             v_ls.append(tf.expand_dims(v, axis=0))
-        return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
+        if self.identical:
+            pi_ls = tf.squeeze(tf.concat(pi_ls, axis=0))
+        return pi_ls, tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 
     def _init_policy(self, n_agent, neighbor_mask, n_h):
         self.n_agent = n_agent
@@ -412,7 +431,11 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
             ob = self.ob_bw
             action = self.action_bw
             done = self.done_bw
-        h, new_states = lstm_ic3(ob, done, self.neighbor_mask, self.states, 'lstm_ic3')
+        if self.identical:
+            h, new_states = lstm_ic3(ob, done, self.neighbor_mask, self.states, 'lstm_ic3')
+        else:
+            h, new_states = lstm_ic3_hetero(ob, done, self.neighbor_mask, self.states,
+                                            self.n_s_ls, self.n_a_ls, 'lstm_ic3')
         pi_ls = []
         v_ls = []
         for i in range(self.n_agent):
@@ -450,7 +473,11 @@ class DIALMultiAgentPolicy(NCMultiAgentPolicy):
             policy = self.policy_bw
             action = self.action_bw
             done = self.done_bw
-        h, new_states = lstm_dial(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
+        if self.identical:
+            h, new_states = lstm_dial(ob, policy, done, self.neighbor_mask, self.states, 'lstm_comm')
+        else:
+            h, new_states = lstm_dial(ob, policy, done, self.neighbor_mask, self.states,
+                                      self.n_s_ls, self.n_a_ls, 'lstm_comm')
         pi_ls = []
         v_ls = []
         for i in range(self.n_agent):
