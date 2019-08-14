@@ -83,7 +83,8 @@ class IA2C:
         self.n_s_ls = n_s_ls
         self.n_a_ls = n_a_ls
         self.identical_agent = False
-        if (max(self.n_a_ls) == min(self.n_a_ls)) and (max(self.n_s_ls) == min(self.n_s_ls)):
+        if (max(self.n_a_ls) == min(self.n_a_ls)):
+            # note for identical IA2C, n_s_ls may have varient dims
             self.identical_agent = True
             self.n_s = n_s_ls[0]
             self.n_a = n_a_ls[0]

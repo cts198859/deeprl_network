@@ -667,7 +667,7 @@ def lstm_dial_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
     xs = seq_to_batch(xs) # TxNxn_h
     xs = tf.transpose(xs, perm=[1,0,2]) # NxTxn_h
     return xs, s
-    
+
 """
 buffers
 """

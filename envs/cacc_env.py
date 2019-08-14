@@ -6,7 +6,7 @@ import pandas as pd
 # import seaborn as sns
 # sns.set()
 # sns.set_color_codes()
-
+COLLISION_WT = 5
 
 class CACCEnv:
     def __init__(self, config):
@@ -41,11 +41,17 @@ class CACCEnv:
         h_rewards = -(self.hs_cur - self.h_star) ** 2
         v_rewards = -self.a * (self.vs_cur - self.v_star) ** 2
         u_rewards = -self.b * (self.us_cur) ** 2
-        return h_rewards + v_rewards + u_rewards
+        if self.train_mode:
+            c_rewards = -COLLISION_WT * (np.minimum(self.hs_cur - self.h_s, 0)) ** 2
+        else:
+            c_rewards = 0
+        return h_rewards + v_rewards + u_rewards + c_rewards
 
     def _get_veh_state(self, i_veh):
-        v_state = np.clip((self.vs_cur[i_veh] - self.v_star) / self.v_norm, -2, 2)
-        h_state = np.clip((self.hs_cur[i_veh] - self.h_star) / self.h_norm, -2, 2)
+        v_state = (self.vs_cur[i_veh] - self.v_star) / self.v_norm
+        h_state = (self.hs_cur[i_veh] - self.h_star) / self.h_norm
+        # v_state = np.clip((self.vs_cur[i_veh] - self.v_star) / self.v_norm, -2, 2)
+        # h_state = np.clip((self.hs_cur[i_veh] - self.h_star) / self.h_norm, -2, 2)
         u_state = self.us_cur[i_veh] / self.u_max
         return np.array([v_state, h_state, u_state])
 
@@ -231,38 +237,40 @@ class CACCEnv:
         return
 
     def _init_space(self):
-        self.neighbor_mask = np.zeros((self.n_agent, self.n_agent))
-        self.distance_mask = np.zeros((self.n_agent, self.n_agent))
-        cur_distance = np.arange(self.n_agent)
+        self.neighbor_mask = np.zeros((self.n_agent, self.n_agent)).astype(int)
+        self.distance_mask = np.zeros((self.n_agent, self.n_agent)).astype(int)
+        cur_distance = list(range(self.n_agent))
         for i in range(self.n_agent):
             self.distance_mask[i] = cur_distance
-            cur_distance = np.concatenate([[i+1], cur_distance[:-1]])
+            cur_distance = [i+1] + cur_distance[:-1]
             if i >= 1:
                 self.neighbor_mask[i,i-1] = 1
+            if i >= 2:
+                self.neighbor_mask[i,i-2] = 1
             if i <= self.n_agent-2:
                 self.neighbor_mask[i,i+1] = 1
-        # 9 levels of high level control: conservative -> aggressive
-        self.n_a = 9
-        a_interval = (self.h_g - self.h_s) / ((self.n_a+1)*0.5)
-        self.a_map = np.arange(1, self.n_a+1)*a_interval + self.h_s
+            if i <= self.n_agent-3:
+                self.neighbor_mask[i,i+2] = 1
+        # 5 levels of high level control: conservative -> aggressive
+        self.n_a_ls = [5] * self.n_agent
+        self.n_a = 5
+        # a_interval = (self.h_g - self.h_s) / ((self.n_a+1)*0.5)
+        # self.a_map = np.arange(1, self.n_a+1)*a_interval + self.h_s
+        self.a_map = np.arange(-10, 11, 5) + self.h_g
         logging.info('action to h_go map:\n %r' % self.a_map)
-        n_s_ls = []
+        self.n_s_ls = []
         for i in range(self.n_agent):
             if self.agent.startswith('ma2c'):
                 num_n = 1
             else:
                 num_n = 1 + np.sum(self.neighbor_mask[i])
-            n_s_ls.append(num_n * 3)
-        if self.agent.startswith('ma2c'):
-            assert len(set(n_s_ls)) == 1
-            self.n_s = n_s_ls[0]
-        else:
-            self.n_s_ls = n_s_ls
+            self.n_s_ls.append(num_n * 3)
 
     def _init_catchup(self):
         # first vehicle has long headway (4x) and remaining vehicles have random
         # headway (1x~2x)
-        self.hs = [(1+np.random.rand(self.n_agent)) * self.h_star]
+        # self.hs = [(1+np.random.rand(self.n_agent)) * self.h_star]
+        self.hs = [np.ones(self.n_agent) * self.h_star]
         self.hs[0][0] = self.h_star*4
         # all vehicles have v_star initially
         self.vs = [np.ones(self.n_agent) * self.v_star]
@@ -270,13 +278,14 @@ class CACCEnv:
         self.v0s = np.ones(self.T+1) * self.v_star
 
     def _init_common(self):
-        self.alpha = 0.5
-        self.beta = 0.5
+        self.alpha = 0.4
+        self.beta = 0.4
         self.t = 0
 
     def _init_slowdown(self):
         # all vehicles have random headway (1x~2x)
-        self.hs = [(1+np.random.rand(self.n_agent)) * self.h_star]
+        # self.hs = [(1+np.random.rand(self.n_agent)) * self.h_star]
+        self.hs = [np.ones(self.n_agent) * self.h_star]
         # all vehicles have 2v_star initially
         self.vs = [np.ones(self.n_agent) * 2*self.v_star]
         # leading vehicle is decelerating from 2v_star to v_star with 0.5*u_min
