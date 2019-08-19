@@ -373,7 +373,7 @@ class ConsensusPolicy(NCMultiAgentPolicy):
                 pi_ls.append(tf.expand_dims(pi, axis=0))
                 n_n = int(np.sum(self.neighbor_mask[i]))
             else:
-                pi = self._build_actor_head(h_i, n_a=self.n_a_ls[i], agent_name='%d' % i)
+                pi = self._build_actor_head(h_i, n_a=self.n_a_ls[i], agent_name='%da' % i)
                 pi_ls.append(tf.squeeze(pi))
                 self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
                 n_n = len(self.na_dim_ls)
@@ -381,7 +381,8 @@ class ConsensusPolicy(NCMultiAgentPolicy):
             v = self._build_critic_head(h_i, naction, n_n=n_n, agent_name='%da' % i)
             v_ls.append(tf.expand_dims(v, axis=0))
             new_states_ls.append(tf.expand_dims(new_states, axis=0))
-        pi_ls = tf.squeeze(tf.concat(pi_ls, axis=0))
+        if self.identical:
+            pi_ls = tf.squeeze(tf.concat(pi_ls, axis=0))
         v_ls = tf.squeeze(tf.concat(v_ls, axis=0))
         new_states_ls = tf.squeeze(tf.concat(new_states_ls, axis=0))
         return pi_ls, v_ls, new_states_ls
@@ -454,7 +455,9 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
                 n_n = len(self.na_dim_ls)
             v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
             v_ls.append(tf.expand_dims(v, axis=0))
-        return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
+        if self.identical:
+            pi_ls = tf.squeeze(tf.concat(pi_ls, axis=0))
+        return pi_ls, tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 
 
 class DIALMultiAgentPolicy(NCMultiAgentPolicy):
@@ -498,5 +501,7 @@ class DIALMultiAgentPolicy(NCMultiAgentPolicy):
                 n_n = len(self.na_dim_ls)
             v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
             v_ls.append(tf.expand_dims(v, axis=0))
-        return tf.squeeze(tf.concat(pi_ls, axis=0)), tf.squeeze(tf.concat(v_ls, axis=0)), new_states
+        if self.identical:
+            pi_ls = tf.squeeze(tf.concat(pi_ls, axis=0))
+        return pi_ls, tf.squeeze(tf.concat(v_ls, axis=0)), new_states
 
