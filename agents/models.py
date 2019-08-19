@@ -178,7 +178,7 @@ class IA2C_FP(IA2C):
                 for j in np.where(self.neighbor_mask[i] == 1)[0]:
                     na_dim_ls.append(self.n_a_ls[j])
                 n_s1 = self.n_s_ls[i] + sum(na_dim_ls)
-                policy.append(FPPolicy(n_s1, self.n_a, n_n, self.n_step, n_fc=self.n_fc,
+                policy.append(FPPolicy(n_s1, self.n_a_ls[i], n_n, self.n_step, n_fc=self.n_fc,
                                        n_lstm=self.n_lstm, name='%d' % i,
                                        na_dim_ls=na_dim_ls, identical=False))
         return policy
