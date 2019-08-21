@@ -268,9 +268,9 @@ class CACCEnv:
 
     def _init_catchup(self):
         # first vehicle has long headway (4x) and remaining vehicles have random
-        # headway (1x~2x)
-        # self.hs = [(1+np.random.rand(self.n_agent)) * self.h_star]
-        self.hs = [np.ones(self.n_agent) * self.h_star]
+        # headway (1x~1.5x)
+        self.hs = [(1+0.5*np.random.rand(self.n_agent)) * self.h_star]
+        # self.hs = [np.ones(self.n_agent) * self.h_star]
         self.hs[0][0] = self.h_star*4
         # all vehicles have v_star initially
         self.vs = [np.ones(self.n_agent) * self.v_star]
@@ -283,14 +283,14 @@ class CACCEnv:
         self.t = 0
 
     def _init_slowdown(self):
-        # all vehicles have random headway (1x~2x)
-        # self.hs = [(1+np.random.rand(self.n_agent)) * self.h_star]
-        self.hs = [np.ones(self.n_agent) * self.h_star]
+        # all vehicles have random headway (1x~1.5x)
+        self.hs = [(1+0.5*np.random.rand(self.n_agent)) * self.h_star]
+        # self.hs = [np.ones(self.n_agent) * self.h_star]
         # all vehicles have 2v_star initially
         self.vs = [np.ones(self.n_agent) * 2*self.v_star]
         # leading vehicle is decelerating from 2v_star to v_star with 0.5*u_min
         self.v0s = np.ones(self.T+1) * self.v_star
-        v0s_decel = np.arange(self.v_star*2, self.v_star-0.1, self.u_min/2)
+        v0s_decel = np.arange(self.v_star*2, self.v_star-0.1, self.u_min*0.02)
         self.v0s[:len(v0s_decel)] = v0s_decel
 
     def _load_config(self, config):
