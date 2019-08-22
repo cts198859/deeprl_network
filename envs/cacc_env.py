@@ -7,6 +7,8 @@ import pandas as pd
 # sns.set()
 # sns.set_color_codes()
 COLLISION_WT = 5
+COLLISON_HEADWAY = 10
+
 
 class CACCEnv:
     def __init__(self, config):
@@ -42,7 +44,7 @@ class CACCEnv:
         v_rewards = -self.a * (self.vs_cur - self.v_star) ** 2
         u_rewards = -self.b * (self.us_cur) ** 2
         if self.train_mode:
-            c_rewards = -COLLISION_WT * (np.minimum(self.hs_cur - self.h_s, 0)) ** 2
+            c_rewards = -COLLISION_WT * (np.minimum(self.hs_cur - COLLISON_HEADWAY, 0)) ** 2
         else:
             c_rewards = 0
         return h_rewards + v_rewards + u_rewards + c_rewards
@@ -215,8 +217,8 @@ class CACCEnv:
         global_reward = np.sum(reward)
         self.rewards.append(global_reward)
         done = False
-        if self.collision and not self.t % self.batch_size:
-            done = True
+        # if self.collision and not self.t % self.batch_size:
+        #     done = True
         if self.t == self.T:
             done = True
         if self.coop_gamma < 0:
@@ -256,7 +258,7 @@ class CACCEnv:
         self.n_a = 5
         # a_interval = (self.h_g - self.h_s) / ((self.n_a+1)*0.5)
         # self.a_map = np.arange(1, self.n_a+1)*a_interval + self.h_s
-        self.a_map = np.arange(-10, 11, 5) + self.h_g
+        self.a_map = np.arange(-15, 15, 7.5) + self.h_g
         logging.info('action to h_go map:\n %r' % self.a_map)
         self.n_s_ls = []
         for i in range(self.n_agent):
@@ -269,8 +271,8 @@ class CACCEnv:
     def _init_catchup(self):
         # first vehicle has long headway (4x) and remaining vehicles have random
         # headway (1x~1.5x)
-        self.hs = [(1+0.5*np.random.rand(self.n_agent)) * self.h_star]
-        # self.hs = [np.ones(self.n_agent) * self.h_star]
+        #self.hs = [(1+0.5*np.random.rand(self.n_agent)) * self.h_star]
+        self.hs = [np.ones(self.n_agent) * self.h_star]
         self.hs[0][0] = self.h_star*4
         # all vehicles have v_star initially
         self.vs = [np.ones(self.n_agent) * self.v_star]
@@ -278,8 +280,8 @@ class CACCEnv:
         self.v0s = np.ones(self.T+1) * self.v_star
 
     def _init_common(self):
-        self.alpha = 0.4
-        self.beta = 0.4
+        self.alpha = 0.3
+        self.beta = 0.3
         self.t = 0
 
     def _init_slowdown(self):
