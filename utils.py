@@ -202,8 +202,11 @@ class Trainer():
                 action = self.model.forward(ob)
             else:
                 # in on-policy learning, test policy has to be stochastic
-                # policy, action = self._get_policy(ob, False, mode='test')
-                policy, action = self._get_policy(ob, False)
+                if self.env.name.startswith('atsc'):
+                    policy, action = self._get_policy(ob, False)
+                else:
+                    # for mission-critic tasks like CACC, we need deterministic policy
+                    policy, action = self._get_policy(ob, False, mode='test')
                 self.env.update_fingerprint(policy)
             next_ob, reward, done, global_reward = self.env.step(action)
             rewards.append(global_reward)

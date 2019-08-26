@@ -7,7 +7,7 @@ import pandas as pd
 # sns.set()
 # sns.set_color_codes()
 COLLISION_WT = 5
-COLLISON_HEADWAY = 10
+COLLISION_HEADWAY = 10
 
 
 class CACCEnv:
@@ -44,14 +44,14 @@ class CACCEnv:
         v_rewards = -self.a * (self.vs_cur - self.v_star) ** 2
         u_rewards = -self.b * (self.us_cur) ** 2
         if self.train_mode:
-            c_rewards = -COLLISION_WT * (np.minimum(self.hs_cur - COLLISON_HEADWAY, 0)) ** 2
+            c_rewards = -COLLISION_WT * (np.minimum(self.hs_cur - COLLISION_HEADWAY, 0)) ** 2
         else:
             c_rewards = 0
         return h_rewards + v_rewards + u_rewards + c_rewards
 
     def _get_veh_state(self, i_veh):
-        v_state = (self.vs_cur[i_veh] - self.v_star) / self.v_norm
-        h_state = (self.hs_cur[i_veh] - self.h_star) / self.h_norm
+        v_state = (self.vs_cur[i_veh] - self.v_star) / self.v_star
+        h_state = (self.hs_cur[i_veh] - self.h_star) / self.h_star
         # v_state = np.clip((self.vs_cur[i_veh] - self.v_star) / self.v_norm, -2, 2)
         # h_state = np.clip((self.hs_cur[i_veh] - self.h_star) / self.h_norm, -2, 2)
         u_state = self.us_cur[i_veh] / self.u_max
@@ -258,7 +258,7 @@ class CACCEnv:
         self.n_a = 5
         # a_interval = (self.h_g - self.h_s) / ((self.n_a+1)*0.5)
         # self.a_map = np.arange(1, self.n_a+1)*a_interval + self.h_s
-        self.a_map = np.arange(-15, 15, 7.5) + self.h_g
+        self.a_map = np.arange(-10, 11, 5) + self.h_g
         logging.info('action to h_go map:\n %r' % self.a_map)
         self.n_s_ls = []
         for i in range(self.n_agent):
@@ -280,14 +280,14 @@ class CACCEnv:
         self.v0s = np.ones(self.T+1) * self.v_star
 
     def _init_common(self):
-        self.alpha = 0.3
-        self.beta = 0.3
+        self.alpha = 0.5
+        self.beta = 0.5
         self.t = 0
 
     def _init_slowdown(self):
         # all vehicles have random headway (1x~1.5x)
-        self.hs = [(1+0.5*np.random.rand(self.n_agent)) * self.h_star]
-        # self.hs = [np.ones(self.n_agent) * self.h_star]
+        # self.hs = [(1+0.5*np.random.rand(self.n_agent)) * self.h_star]
+        self.hs = [np.ones(self.n_agent) * self.h_star]
         # all vehicles have 2v_star initially
         self.vs = [np.ones(self.n_agent) * 2*self.v_star]
         # leading vehicle is decelerating from 2v_star to v_star with 0.5*u_min
