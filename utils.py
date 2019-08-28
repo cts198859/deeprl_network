@@ -238,6 +238,7 @@ class Trainer():
 
     def run(self):
         while not self.global_counter.should_stop():
+            # np.random.seed(self.env.seed)
             ob = self.env.reset()
             done = False
             self.cur_step = 0
