@@ -13,6 +13,8 @@ import xml.etree.cElementTree as ET
 
 DEFAULT_PORT = 8000
 SEC_IN_MS = 1000
+VEH_LEN_M = 7 # effective vehicle length
+QUEUE_MAX = 15
 
 
 class PhaseSet:
@@ -59,8 +61,8 @@ class PhaseMap:
 class Node:
     def __init__(self, name, neighbor=[], control=False):
         self.control = control # disabled
-        self.lanes_in = []
         self.ilds_in = [] # for state
+        self.lanes_capacity = []
         self.fingerprint = [] # local policy
         self.name = name
         self.neighbor = neighbor
@@ -306,13 +308,23 @@ class TrafficSimulator:
                                     control=True)
             # controlled lanes: l:j,i_k
             lanes_in = self.sim.trafficlight.getControlledLanes(node_name)
-            nodes[node_name].lanes_in = lanes_in
             ilds_in = []
+            lanes_cap = []
             for lane_name in lanes_in:
-                ild_name = lane_name
-                if ild_name not in ilds_in:
-                    ilds_in.append(ild_name)
+                if self.name == 'atsc_real_net':
+                    cur_ilds_in = [lane_name]
+                    if (node_name, lane_name) in self.extended_lanes:
+                        cur_ilds_in += self.extended_lanes[(node_name, lane_name)]
+                    ilds_in.append(cur_ilds_in)
+                    cur_cap = 0
+                    for ild_name in cur_ilds_in:
+                        cur_cap += self.sim.lane.getLength(ild_name)
+                    lanes_cap.append(cur_cap/float(VEH_LEN_M))
+                else:
+                    ilds_in.append(lane_name)
             nodes[node_name].ilds_in = ilds_in
+            if self.name == 'atsc_real_net':
+                nodes[node_name].lanes_capacity = lanes_cap
         self.nodes = nodes
         s = 'Env: init %d node information:\n' % len(self.node_names)
         for node_name in self.node_names:
@@ -337,10 +349,7 @@ class TrafficSimulator:
         command += ['--seed', str(seed)]
         command += ['--remote-port', str(self.port)]
         command += ['--no-step-log', 'True']
-        if self.name != 'atsc_real_net':
-            command += ['--time-to-teleport', '600'] # long teleport for safety
-        else:
-            command += ['--time-to-teleport', '300']
+        command += ['--time-to-teleport', '600'] # long teleport for safety
         command += ['--no-warnings', 'True']
         command += ['--duration-log.disable', 'True']
         # collect trip info if necessary
@@ -379,7 +388,10 @@ class TrafficSimulator:
             for ild in self.nodes[node_name].ilds_in:
                 if self.obj in ['queue', 'hybrid']:
                     if self.name == 'atsc_real_net':
-                        cur_queue = min(10, self.sim.lane.getLastStepHaltingNumber(ild))
+                        cur_queue = 0
+                        for ild_seg in ild:
+                            cur_queue += self.sim.lane.getLastStepHaltingNumber(ild_seg)
+                        cur_queue = min(cur_queue, QUEUE_MAX)
                     else:
                         cur_queue = self.sim.lanearea.getLastStepHaltingNumber(ild)
                     queues.append(cur_queue)
@@ -387,7 +399,7 @@ class TrafficSimulator:
                     max_pos = 0
                     car_wait = 0
                     if self.name == 'atsc_real_net':
-                        cur_cars = self.sim.lane.getLastStepVehicleIDs(ild)
+                        cur_cars = self.sim.lane.getLastStepVehicleIDs(ild[0])
                     else:
                         cur_cars = self.sim.lanearea.getLastStepVehicleIDs(ild)
                     for vid in cur_cars:
@@ -413,9 +425,12 @@ class TrafficSimulator:
             for state_name in self.state_names:
                 if state_name == 'wave':
                     cur_state = []
-                    for ild in node.ilds_in:
+                    for k, ild in enumerate(node.ilds_in):
                         if self.name == 'atsc_real_net':
-                            cur_wave = self.sim.lane.getLastStepVehicleNumber(ild)
+                            cur_wave = 0
+                            for ild_seg in ild:
+                                cur_wave += self.sim.lane.getLastStepVehicleNumber(ild_seg)
+                            cur_wave /= node.lanes_capacity
                         else:
                             cur_wave = self.sim.lanearea.getLastStepVehicleNumber(ild)
                         cur_state.append(cur_wave)
@@ -426,7 +441,7 @@ class TrafficSimulator:
                         max_pos = 0
                         car_wait = 0
                         if self.name == 'atsc_real_net':
-                            cur_cars = self.sim.lane.getLastStepVehicleIDs(ild)
+                            cur_cars = self.sim.lane.getLastStepVehicleIDs(ild[0])
                         else:
                             cur_cars = self.sim.lanearea.getLastStepVehicleIDs(ild)
                         for vid in cur_cars:
@@ -463,10 +478,16 @@ class TrafficSimulator:
         queues = []
         for node_name in self.node_names:
             for ild in self.nodes[node_name].ilds_in:
-                lane_name = ild
-                queues.append(self.sim.lane.getLastStepHaltingNumber(lane_name))
-        avg_queue = np.mean(np.array(queues))
-        std_queue = np.std(np.array(queues))
+                if self.name == 'atsc_real_net':
+                    cur_queue = 0
+                    for ild_seg in ild:
+                        cur_queue += self.sim.lane.getLastStepHaltingNumber(ild_seg)
+                else:
+                    cur_queue = self.sim.lane.getLastStepHaltingNumber(ild)
+                queues.append(cur_queue)
+        queues = np.array(queues)
+        avg_queue = np.mean(queues)
+        std_queue = np.std(queues)
         cur_traffic = {'episode': self.cur_episode,
                        'time_sec': self.cur_sec,
                        'number_total_car': num_tot_car,
