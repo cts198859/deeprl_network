@@ -388,9 +388,7 @@ class TrafficSimulator:
             for ild in self.nodes[node_name].ilds_in:
                 if self.obj in ['queue', 'hybrid']:
                     if self.name == 'atsc_real_net':
-                        cur_queue = 0
-                        for ild_seg in ild:
-                            cur_queue += self.sim.lane.getLastStepHaltingNumber(ild_seg)
+                        cur_queue = self.sim.lane.getLastStepHaltingNumber(ild[0])
                         cur_queue = min(cur_queue, QUEUE_MAX)
                     else:
                         cur_queue = self.sim.lanearea.getLastStepHaltingNumber(ild)
@@ -430,7 +428,7 @@ class TrafficSimulator:
                             cur_wave = 0
                             for ild_seg in ild:
                                 cur_wave += self.sim.lane.getLastStepVehicleNumber(ild_seg)
-                            cur_wave /= node.lanes_capacity
+                            cur_wave /= np.sum(node.lanes_capacity)
                         else:
                             cur_wave = self.sim.lanearea.getLastStepVehicleNumber(ild)
                         cur_state.append(cur_wave)
