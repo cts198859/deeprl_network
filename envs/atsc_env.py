@@ -14,7 +14,7 @@ import xml.etree.cElementTree as ET
 DEFAULT_PORT = 8000
 SEC_IN_MS = 1000
 VEH_LEN_M = 7 # effective vehicle length
-QUEUE_MAX = 15
+QUEUE_MAX = 10
 
 
 class PhaseSet:
@@ -428,7 +428,8 @@ class TrafficSimulator:
                             cur_wave = 0
                             for ild_seg in ild:
                                 cur_wave += self.sim.lane.getLastStepVehicleNumber(ild_seg)
-                            cur_wave /= np.sum(node.lanes_capacity)
+                            # cur_wave /= np.sum(node.lanes_capacity)
+                            cur_wave = min(1.5, cur_wave / QUEUE_MAX)
                         else:
                             cur_wave = self.sim.lanearea.getLastStepVehicleNumber(ild)
                         cur_state.append(cur_wave)
