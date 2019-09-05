@@ -237,7 +237,6 @@ def lstm_comm_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
     wx_hid = []
     wh_hid = []
     b_hid = []
-    n_in_hid = 3*n_h
     na_dim_ls = []
     ns_dim_ls = []
     for i in range(n_agent):
@@ -254,6 +253,10 @@ def lstm_comm_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
             ns_dim.append(n_s_ls[j])
         na_dim_ls.append(na_dim)
         ns_dim_ls.append(ns_dim)
+        if n_fp:
+            n_in_hid = 3*n_h
+        else:
+            n_in_hid = 2*n_h
         with tf.variable_scope(scope + ('_%d' % i)):
             w_msg.append(tf.get_variable("w_msg", [n_h*n_m, n_h],
                                          initializer=init_method(init_scale, init_mode)))
@@ -263,10 +266,14 @@ def lstm_comm_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
                                         initializer=init_method(init_scale, init_mode)))
             b_ob.append(tf.get_variable("b_ob", [n_h],
                                         initializer=tf.constant_initializer(0.0)))
-            w_fp.append(tf.get_variable("w_fp", [n_fp, n_h],
-                                        initializer=init_method(init_scale, init_mode)))
-            b_fp.append(tf.get_variable("b_fp", [n_h],
-                                        initializer=tf.constant_initializer(0.0)))
+            if n_fp:
+                w_fp.append(tf.get_variable("w_fp", [n_fp, n_h],
+                                            initializer=init_method(init_scale, init_mode)))
+                b_fp.append(tf.get_variable("b_fp", [n_h],
+                                            initializer=tf.constant_initializer(0.0)))
+            else:
+                w_fp.append(None)
+                b_fp.append(None)
             wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
                                           initializer=init_method(init_scale, init_mode)))
             wh_hid.append(tf.get_variable("wh_hid", [n_h, n_h*4],
@@ -302,12 +309,15 @@ def lstm_comm_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
             for j in range(len(ns_dim_ls[i])):
                 pi.append(tf.slice(raw_pi, [j, 0], [1, na_dim_ls[i][j]]))
                 xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i][j]]))
-            pi = tf.concat(pi, axis=1)
             xi = tf.concat(xi, axis=1)
             hxi = tf.nn.relu(tf.matmul(xi, w_ob[i]) + b_ob[i])
-            hpi = tf.nn.relu(tf.matmul(pi, w_fp[i]) + b_fp[i])
+            if len(pi):
+                hpi = tf.nn.relu(tf.matmul(tf.concat(pi, axis=1), w_fp[i]) + b_fp[i])
             hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
-            si = tf.concat([hxi, hpi, hmi], axis=1)
+            if len(pi):
+                si = tf.concat([hxi, hpi, hmi], axis=1)
+            else:
+                si = tf.concat([hxi, hmi], axis=1)
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
             ii = tf.nn.sigmoid(ii)

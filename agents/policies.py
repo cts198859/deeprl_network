@@ -62,16 +62,17 @@ class Policy:
             name += '_' + str(agent_name)
         if n_n is None:
             n_n = int(self.n_n)
-        if self.identical:
-            na_sparse = tf.one_hot(na, self.n_a, axis=-1)
-            na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
-        else:
-            na_sparse = []
-            na_ls = tf.split(axis=1, num_or_size_splits=n_n, value=na)
-            for na_val, na_dim in zip(na_ls, self.na_dim_ls):
-                na_sparse.append(tf.squeeze(tf.one_hot(na_val, na_dim, axis=-1), axis=1))
-            na_sparse = tf.concat(na_sparse, 1)
-        h = tf.concat([h, na_sparse], 1)
+        if n_n:
+            if self.identical:
+                na_sparse = tf.one_hot(na, self.n_a, axis=-1)
+                na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
+            else:
+                na_sparse = []
+                na_ls = tf.split(axis=1, num_or_size_splits=n_n, value=na)
+                for na_val, na_dim in zip(na_ls, self.na_dim_ls):
+                    na_sparse.append(tf.squeeze(tf.one_hot(na_val, na_dim, axis=-1), axis=1))
+                na_sparse = tf.concat(na_sparse, 1)
+            h = tf.concat([h, na_sparse], 1)
         v = fc(h, name, 1, act=lambda x: x)
         return v
 
@@ -86,10 +87,11 @@ class LstmPolicy(Policy):
         self.n_fc = n_fc
         self.n_n = n_n
         self.ob_fw = tf.placeholder(tf.float32, [1, n_s]) # forward 1-step
-        self.naction_fw = tf.placeholder(tf.int32, [1, n_n])
         self.done_fw = tf.placeholder(tf.float32, [1])
         self.ob_bw = tf.placeholder(tf.float32, [n_step, n_s]) # backward n-step
-        self.naction_bw = tf.placeholder(tf.int32, [n_step, n_n])
+        if self.n_n:
+            self.naction_fw = tf.placeholder(tf.int32, [1, n_n])
+            self.naction_bw = tf.placeholder(tf.int32, [n_step, n_n])
         self.done_bw = tf.placeholder(tf.float32, [n_step])
         self.states = tf.placeholder(tf.float32, [n_lstm * 2])
         with tf.variable_scope(self.name):
@@ -100,15 +102,16 @@ class LstmPolicy(Policy):
 
     def backward(self, sess, obs, nactions, acts, dones, Rs, Advs, cur_lr,
                  summary_writer=None, global_step=None):
-        summary, _ = sess.run([self.summary, self._train],
-                              {self.ob_bw: obs,
-                               self.naction_bw: nactions,
-                               self.done_bw: dones,
-                               self.states: self.states_bw,
-                               self.A: acts,
-                               self.ADV: Advs,
-                               self.R: Rs,
-                               self.lr: cur_lr})
+        ins = {self.ob_bw: obs,
+               self.done_bw: dones,
+               self.states: self.states_bw,
+               self.A: acts,
+               self.ADV: Advs,
+               self.R: Rs,
+               self.lr: cur_lr}
+        if self.n_n:
+            ins[self.naction_bw] = nactions
+        summary, _ = sess.run([self.summary, self._train], ins)
         self.states_bw = np.copy(self.states_fw)
         if summary_writer is not None:
             summary_writer.add_summary(summary, global_step=global_step)
@@ -122,7 +125,8 @@ class LstmPolicy(Policy):
             outs = [self.pi_fw, self.new_states]
         else:
             outs = [self.v_fw]
-            ins[self.naction_fw] = np.array([naction])
+            if self.n_n:
+                ins[self.naction_fw] = np.array([naction])
         out_values = sess.run(outs, ins)
         out_value = out_values[0]
         if out_type.startswith('p'):
@@ -133,11 +137,11 @@ class LstmPolicy(Policy):
         if in_type == 'forward':
             ob = self.ob_fw
             done = self.done_fw
-            naction = self.naction_fw
+            naction = self.naction_fw is self.n_n else None
         else:
             ob = self.ob_bw
             done = self.done_bw
-            naction = self.naction_bw
+            naction = self.naction_bw if self.n_n else None
         h = fc(ob, 'fc', self.n_fc)
         h, new_states = lstm(h, done, self.states, 'lstm')
         pi = self._build_actor_head(h)
@@ -160,18 +164,21 @@ class FPPolicy(LstmPolicy):
         if in_type == 'forward':
             ob = self.ob_fw
             done = self.done_fw
-            naction = self.naction_fw
+            naction = self.naction_fw is self.n_n else None
         else:
             ob = self.ob_bw
             done = self.done_bw
-            naction = self.naction_bw
+            naction = self.naction_fw is self.n_n else None
         if self.identical:
             n_x = int(self.n_s - self.n_n * self.n_a)
         else:
             n_x = int(self.n_s - sum(self.na_dim_ls))
         hx = fc(ob[:,:n_x], 'fcs', self.n_fc)
-        hp = fc(ob[:,n_x:], 'fcp', self.n_fc)
-        h = tf.concat([hx, hp], axis=1)
+        if self.n_n:
+            hp = fc(ob[:,n_x:], 'fcp', self.n_fc)
+            h = tf.concat([hx, hp], axis=1)
+        else:
+            h = hx
         h, new_states = lstm(h, done, self.states, 'lstm')
         pi = self._build_actor_head(h)
         v = self._build_critic_head(h, naction)
@@ -285,7 +292,6 @@ class NCMultiAgentPolicy(Policy):
         v_ls = []
         for i in range(self.n_agent):
             h_i = h[i] # Txn_h
-            naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
             if self.identical:
                 pi = self._build_actor_head(h_i, agent_name='%d' % i)
                 pi_ls.append(tf.expand_dims(pi, axis=0))
@@ -295,6 +301,10 @@ class NCMultiAgentPolicy(Policy):
                 pi_ls.append(tf.squeeze(pi))
                 self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
                 n_n = len(self.na_dim_ls)
+            if n_n:
+                naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
+            else:
+                naction_i = None
             v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
             v_ls.append(tf.expand_dims(v, axis=0))
         if self.identical:
@@ -377,7 +387,10 @@ class ConsensusPolicy(NCMultiAgentPolicy):
                 pi_ls.append(tf.squeeze(pi))
                 self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
                 n_n = len(self.na_dim_ls)
-            naction = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i]))
+            if n_n:
+                naction = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i]))
+            else:
+                naction = None
             v = self._build_critic_head(h_i, naction, n_n=n_n, agent_name='%da' % i)
             v_ls.append(tf.expand_dims(v, axis=0))
             new_states_ls.append(tf.expand_dims(new_states, axis=0))
@@ -443,7 +456,6 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
         v_ls = []
         for i in range(self.n_agent):
             h_i = h[i] # Txn_h
-            naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
             if self.identical:
                 pi = self._build_actor_head(h_i, agent_name='%d' % i)
                 pi_ls.append(tf.expand_dims(pi, axis=0))
@@ -453,6 +465,10 @@ class IC3MultiAgentPolicy(NCMultiAgentPolicy):
                 pi_ls.append(tf.squeeze(pi))
                 self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
                 n_n = len(self.na_dim_ls)
+            if n_n:
+                naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
+            else:
+                naction_i = None
             v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
             v_ls.append(tf.expand_dims(v, axis=0))
         if self.identical:
@@ -489,7 +505,6 @@ class DIALMultiAgentPolicy(NCMultiAgentPolicy):
         v_ls = []
         for i in range(self.n_agent):
             h_i = h[i] # Txn_h
-            naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
             if self.identical:
                 pi = self._build_actor_head(h_i, agent_name='%d' % i)
                 pi_ls.append(tf.expand_dims(pi, axis=0))
@@ -499,6 +514,10 @@ class DIALMultiAgentPolicy(NCMultiAgentPolicy):
                 pi_ls.append(tf.squeeze(pi))
                 self.na_dim_ls = [self.n_a_ls[j] for j in np.where(self.neighbor_mask[i] == 1)[0]]
                 n_n = len(self.na_dim_ls)
+            if n_n:
+                naction_i = tf.transpose(tf.boolean_mask(action, self.neighbor_mask[i])) # Txn_n
+            else:
+                naction_i = None
             v = self._build_critic_head(h_i, naction_i, n_n=n_n, agent_name='%d' % i)
             v_ls.append(tf.expand_dims(v, axis=0))
         if self.identical:
