@@ -137,7 +137,7 @@ class LstmPolicy(Policy):
         if in_type == 'forward':
             ob = self.ob_fw
             done = self.done_fw
-            naction = self.naction_fw is self.n_n else None
+            naction = self.naction_fw if self.n_n else None
         else:
             ob = self.ob_bw
             done = self.done_bw
@@ -164,11 +164,11 @@ class FPPolicy(LstmPolicy):
         if in_type == 'forward':
             ob = self.ob_fw
             done = self.done_fw
-            naction = self.naction_fw is self.n_n else None
+            naction = self.naction_fw if self.n_n else None
         else:
             ob = self.ob_bw
             done = self.done_bw
-            naction = self.naction_fw is self.n_n else None
+            naction = self.naction_bw if self.n_n else None
         if self.identical:
             n_x = int(self.n_s - self.n_n * self.n_a)
         else:

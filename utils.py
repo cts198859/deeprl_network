@@ -145,6 +145,8 @@ class Trainer():
             value = self.model.forward(ob, done, self.ps, np.array(action), 'v')
         else:
             self.naction = self.env.get_neighbor_action(action)
+            if not self.naction:
+                self.naction = np.nan
             value = self.model.forward(ob, done, self.naction, 'v')
         return value
 
