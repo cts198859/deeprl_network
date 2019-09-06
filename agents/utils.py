@@ -242,38 +242,39 @@ def lstm_comm_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
     for i in range(n_agent):
         n_s = n_s_ls[i]
         n_fp = 0
-        n_m = 0
         na_dim = []
         ns_dim = []
         for j in np.where(masks[i])[0]:
             n_s += n_s_ls[j]
-            n_m += 1
             n_fp += n_a_ls[j]
             na_dim.append(n_a_ls[j])
             ns_dim.append(n_s_ls[j])
         na_dim_ls.append(na_dim)
         ns_dim_ls.append(ns_dim)
-        if n_fp:
+        n_m = len(ns_dim)
+        if n_m:
             n_in_hid = 3*n_h
         else:
-            n_in_hid = 2*n_h
+            n_in_hid = n_h
         with tf.variable_scope(scope + ('_%d' % i)):
-            w_msg.append(tf.get_variable("w_msg", [n_h*n_m, n_h],
-                                         initializer=init_method(init_scale, init_mode)))
-            b_msg.append(tf.get_variable("b_msg", [n_h],
-                                         initializer=tf.constant_initializer(0.0)))
             w_ob.append(tf.get_variable("w_ob", [n_s, n_h],
                                         initializer=init_method(init_scale, init_mode)))
             b_ob.append(tf.get_variable("b_ob", [n_h],
                                         initializer=tf.constant_initializer(0.0)))
-            if n_fp:
+            if n_m:
                 w_fp.append(tf.get_variable("w_fp", [n_fp, n_h],
                                             initializer=init_method(init_scale, init_mode)))
                 b_fp.append(tf.get_variable("b_fp", [n_h],
                                             initializer=tf.constant_initializer(0.0)))
+                w_msg.append(tf.get_variable("w_msg", [n_h*n_m, n_h],
+                                             initializer=init_method(init_scale, init_mode)))
+                b_msg.append(tf.get_variable("b_msg", [n_h],
+                                             initializer=tf.constant_initializer(0.0)))
             else:
                 w_fp.append(None)
                 b_fp.append(None)
+                w_msg.append(None)
+                b_msg.append(None)
             wx_hid.append(tf.get_variable("wx_hid", [n_in_hid, n_h*4],
                                           initializer=init_method(init_scale, init_mode)))
             wh_hid.append(tf.get_variable("wh_hid", [n_h, n_h*4],
@@ -300,24 +301,27 @@ def lstm_comm_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
             ci = ci * (1-done)
             hi = hi * (1-done)
             # receive neighbor messages
-            mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
-            raw_pi = tf.boolean_mask(p, masks[i]) # n_n*n_a
-            raw_xi = tf.boolean_mask(x, masks[i])
+            n_m = len(ns_dim_ls[i])
             pi = []
             xi = [tf.slice(x, [i, 0], [1, n_s_ls[i]])]
-            # find the valid information based on each agent's s, a dim
-            for j in range(len(ns_dim_ls[i])):
-                pi.append(tf.slice(raw_pi, [j, 0], [1, na_dim_ls[i][j]]))
-                xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i][j]]))
-            xi = tf.concat(xi, axis=1)
+            if n_m:
+                mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
+                raw_pi = tf.boolean_mask(p, masks[i]) # n_n*n_a
+                raw_xi = tf.boolean_mask(x, masks[i])
+                # find the valid information based on each agent's s, a dim
+                for j in range(n_m):
+                    pi.append(tf.slice(raw_pi, [j, 0], [1, na_dim_ls[i][j]]))
+                    xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i][j]]))
+                xi = tf.concat(xi, axis=1)
+            else:
+                xi = xi[0]
             hxi = tf.nn.relu(tf.matmul(xi, w_ob[i]) + b_ob[i])
-            if len(pi):
+            if n_m:
                 hpi = tf.nn.relu(tf.matmul(tf.concat(pi, axis=1), w_fp[i]) + b_fp[i])
-            hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
-            if len(pi):
+                hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
                 si = tf.concat([hxi, hpi, hmi], axis=1)
             else:
-                si = tf.concat([hxi, hmi], axis=1)
+                si = hxi
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
             ii = tf.nn.sigmoid(ii)
@@ -436,12 +440,17 @@ def lstm_ic3_hetero(xs, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=DEFAU
         for j in np.where(masks[i])[0]:
             n_s += n_s_ls[j]
             ns_dim.append(n_s_ls[j])
+        n_m = len(ns_dim)
         ns_dim_ls.append(ns_dim)
         with tf.variable_scope(scope + ('_%d' % i)):
-            w_msg.append(tf.get_variable("w_msg", [n_h, n_h],
-                                         initializer=init_method(init_scale, init_mode)))
-            b_msg.append(tf.get_variable("b_msg", [n_h],
-                                         initializer=tf.constant_initializer(0.0)))
+            if n_m:
+                w_msg.append(tf.get_variable("w_msg", [n_h, n_h],
+                                             initializer=init_method(init_scale, init_mode)))
+                b_msg.append(tf.get_variable("b_msg", [n_h],
+                                             initializer=tf.constant_initializer(0.0)))
+            else:
+                w_msg.append(None)
+                b_msg.append(None)
             w_ob.append(tf.get_variable("w_ob", [n_s, n_h],
                                         initializer=init_method(init_scale, init_mode)))
             b_ob.append(tf.get_variable("b_ob", [n_h],
@@ -469,15 +478,21 @@ def lstm_ic3_hetero(xs, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=DEFAU
             ci = ci * (1-done)
             hi = hi * (1-done)
             # receive neighbor messages
-            mi = tf.reduce_mean(tf.boolean_mask(out_m, masks[i]), axis=0, keepdims=True)
-            raw_xi = tf.boolean_mask(x, masks[i])
+            n_m = len(ns_dim_ls[i])
             xi = [tf.slice(x, [i, 0], [1, n_s_ls[i]])]
-            for j in range(len(ns_dim_ls[i])):
-                xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i][j]]))
-            xi = tf.concat(xi, axis=1)
+            if n_m:
+                mi = tf.reduce_mean(tf.boolean_mask(out_m, masks[i]), axis=0, keepdims=True)
+                raw_xi = tf.boolean_mask(x, masks[i])
+                for j in range(n_m):
+                    xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i][j]]))
+                xi = tf.concat(xi, axis=1)
+            else:
+                xi = xi[0]
             # the state encoder in IC3 code is not consistent with that described in the paper.
             # Here we follow the impelmentation in the paper.
-            si = tf.nn.tanh(tf.matmul(xi, w_ob[i]) + b_ob[i]) + tf.matmul(mi, w_msg[i]) + b_msg[i]
+            si = tf.nn.tanh(tf.matmul(xi, w_ob[i]) + b_ob[i])
+            if n_m:
+                si = si + tf.matmul(mi, w_msg[i]) + b_msg[i]
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
             ii = tf.nn.sigmoid(ii)
@@ -605,18 +620,21 @@ def lstm_dial_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
     ns_dim_ls = []
     for i in range(n_agent):
         n_s = n_s_ls[i]
-        n_m = 0
         ns_dim = []
         for j in np.where(masks[i])[0]:
             n_s += n_s_ls[j]
-            n_m += 1
             ns_dim.append(n_s_ls[j])
+        n_m = len(ns_dim)
         ns_dim_ls.append(ns_dim)
         with tf.variable_scope(scope + ('_%d' % i)):
-            w_msg.append(tf.get_variable("w_msg", [n_h*n_m, n_h],
-                                         initializer=init_method(init_scale, init_mode)))
-            b_msg.append(tf.get_variable("b_msg", [n_h],
-                                         initializer=tf.constant_initializer(0.0)))
+            if n_m:
+                w_msg.append(tf.get_variable("w_msg", [n_h*n_m, n_h],
+                                             initializer=init_method(init_scale, init_mode)))
+                b_msg.append(tf.get_variable("b_msg", [n_h],
+                                             initializer=tf.constant_initializer(0.0)))
+            else:
+                w_msg.append(None)
+                b_msg.append(None)
             w_ob.append(tf.get_variable("w_ob", [n_s, n_h],
                                         initializer=init_method(init_scale, init_mode)))
             b_ob.append(tf.get_variable("b_ob", [n_h],
@@ -650,16 +668,21 @@ def lstm_dial_hetero(xs, ps, dones, masks, s, n_s_ls, n_a_ls, scope, init_scale=
             ci = ci * (1-done)
             hi = hi * (1-done)
             # receive neighbor messages
-            mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
-            ai = tf.one_hot(tf.expand_dims(tf.argmax(p[i]), axis=0), n_h)
-            raw_xi = tf.boolean_mask(x, masks[i])
+            n_m = len(ns_dim_ls[i])
             xi = [tf.slice(x, [i, 0], [1, n_s_ls[i]])]
-            for j in range(len(ns_dim_ls[i])):
-                xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i][j]]))
-            xi = tf.concat(xi, axis=1)
-            hxi = tf.nn.relu(tf.matmul(xi, w_ob[i]) + b_ob[i])
-            hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
-            si = hxi + hmi + ai
+            if n_m:
+                mi = tf.expand_dims(tf.reshape(tf.boolean_mask(out_m, masks[i]), [-1]), axis=0)
+                ai = tf.one_hot(tf.expand_dims(tf.argmax(p[i]), axis=0), n_h)
+                raw_xi = tf.boolean_mask(x, masks[i])
+                for j in range(n_m):
+                    xi.append(tf.slice(raw_xi, [j, 0], [1, ns_dim_ls[i][j]]))
+                xi = tf.concat(xi, axis=1)
+            else:
+                xi = xi[0]
+            si = tf.nn.relu(tf.matmul(xi, w_ob[i]) + b_ob[i])
+            if n_m:
+                hmi = tf.nn.relu(tf.matmul(mi, w_msg[i]) + b_msg[i])
+                si = si + hmi + ai
             zi = tf.matmul(si, wx_hid[i]) + tf.matmul(hi, wh_hid[i]) + b_hid[i]
             ii, fi, oi, ui = tf.split(axis=1, num_or_size_splits=4, value=zi)
             ii = tf.nn.sigmoid(ii)
