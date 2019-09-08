@@ -273,7 +273,9 @@ class CACCEnv:
         if not self.seed:
             self.hs[0][0] = self.h_star*4
         else:
-            self.hs[0][0] = self.h_star*(1+np.random.rand())*2
+            s = [0, -1, -0.5, 0.5, 1]
+            # self.hs[0][0] = self.h_star*(1+np.random.rand())*2
+            self.hs[0][0] = self.h_star*(4+s[self.seed])
         # all vehicles have v_star initially
         self.vs = [np.ones(self.n_agent) * self.v_star]
         # leading vehicle (before platoon) is driving at v_star
@@ -292,13 +294,15 @@ class CACCEnv:
         if not self.seed:
             self.vs = [np.ones(self.n_agent) * 2*self.v_star]
         else:
-            self.vs = [np.ones(self.n_agent) * self.v_star*(1.5+0.5*np.random.rand())]
+            s = [0, -0.5, -0.25, 0.25, 0.5]
+            self.vs = [np.ones(self.n_agent) * (2+s[self.seed])*self.v_star]
+            # self.vs = [np.ones(self.n_agent) * self.v_star*(1.5+0.5*np.random.rand())]
         # leading vehicle is decelerating from 2v_star to v_star with 0.02*u_min
         self.v0s = np.ones(self.T+1) * self.v_star
         if not self.seed:
             v0s_decel = np.arange(self.v_star*2, self.v_star-0.1, self.u_min*0.02)
         else:
-            v0s_decel = np.linspace(self.vs[0], self.v_star, 300)
+            v0s_decel = np.linspace(self.vs[0][0], self.v_star, 300)
         self.v0s[:len(v0s_decel)] = v0s_decel
 
     def _load_config(self, config):
