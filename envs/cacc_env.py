@@ -156,9 +156,9 @@ class CACCEnv:
     #     plt.savefig(path + 'env_plot.pdf')
     #     plt.close()
 
-    def reset(self, gui=False, test_ind=0):
+    def reset(self, gui=False, test_ind=-1):
         self.cur_episode += 1
-        if not self.train_mode:
+        if (not self.train_mode) and (test_ind >= 0):
             self.seed = self.test_seeds[test_ind]
         np.random.seed(self.seed)
         self._init_common()

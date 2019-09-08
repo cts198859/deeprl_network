@@ -257,6 +257,12 @@ class Trainer():
             rewards = np.array(self.episode_rewards)
             mean_reward = np.mean(rewards)
             std_reward = np.std(rewards)
+            # NOTE: for CACC we have to run another testing episode after each
+            # training episode since the reward and policy settings are different!
+            if not self.env.name.startswith('atsc'):
+                self.env.train_mode = False
+                mean_reward, std_reward = self.perform(-1)
+                self.env.train_mode = True
             self._log_episode(global_step, mean_reward, std_reward)
         df = pd.DataFrame(self.data)
         df.to_csv(self.output_path + 'train_reward.csv')
