@@ -75,7 +75,8 @@ class IA2C:
         return False
 
     def reset(self):
-        self.policy._reset()
+        for i in range(self.n_agent):
+            self.policy[i]._reset()
 
     def save(self, model_dir, global_step):
         self.saver.save(self.sess, model_dir + 'checkpoint', global_step=global_step)
@@ -221,6 +222,9 @@ class MA2C_NC(IA2C):
             pad_ob, pad_p = self._convert_hetero_states(obs, ps)
             return self.policy.forward(self.sess, pad_ob, done, pad_p,
                                        actions, out_type)
+
+    def reset(self):
+        self.policy._reset()
 
     def _convert_hetero_states(self, ob, p):
         pad_ob = np.zeros((self.n_agent, self.n_s))
