@@ -199,16 +199,18 @@ class Trainer():
     def perform(self, test_ind, gui=False):
         ob = self.env.reset(gui=gui, test_ind=test_ind)
         rewards = []
+        # note this done is pre-decision to reset LSTM states!
+        done = True
         while True:
             if self.agent == 'greedy':
                 action = self.model.forward(ob)
             else:
                 # in on-policy learning, test policy has to be stochastic
                 if self.env.name.startswith('atsc'):
-                    policy, action = self._get_policy(ob, False)
+                    policy, action = self._get_policy(ob, done)
                 else:
                     # for mission-critic tasks like CACC, we need deterministic policy
-                    policy, action = self._get_policy(ob, False, mode='test')
+                    policy, action = self._get_policy(ob, done, mode='test')
                 self.env.update_fingerprint(policy)
             next_ob, reward, done, global_reward = self.env.step(action)
             rewards.append(global_reward)
@@ -242,7 +244,8 @@ class Trainer():
         while not self.global_counter.should_stop():
             # np.random.seed(self.env.seed)
             ob = self.env.reset()
-            done = False
+            # note this done is pre-decision to reset LSTM states!
+            done = True
             self.cur_step = 0
             self.episode_rewards = []
             while True:
