@@ -201,6 +201,7 @@ class Trainer():
         rewards = []
         # note this done is pre-decision to reset LSTM states!
         done = True
+        self.model.reset()
         while True:
             if self.agent == 'greedy':
                 action = self.model.forward(ob)
@@ -221,31 +222,13 @@ class Trainer():
         std_reward = np.std(np.array(rewards))
         return mean_reward, std_reward
 
-    def run_thread(self, coord):
-        '''Multi-threading is disabled for SUMO'''
-        ob = self.env.reset()
-        done = False
-        cum_reward = 0
-        while not coord.should_stop():
-            ob, done, R, cum_reward = self.explore(ob, done, cum_reward)
-            global_step = self.global_counter.cur_step
-            if self.agent.endswith('a2c'):
-                self.model.backward(R, self.summary_writer, global_step)
-            else:
-                self.model.backward(self.summary_writer, global_step)
-            self.summary_writer.flush()
-            if (self.global_counter.should_stop()) and (not coord.should_stop()):
-                self.env.terminate()
-                coord.request_stop()
-                logging.info('Training: stop condition reached!')
-                return
-
     def run(self):
         while not self.global_counter.should_stop():
             # np.random.seed(self.env.seed)
             ob = self.env.reset()
             # note this done is pre-decision to reset LSTM states!
             done = True
+            self.model.reset()
             self.cur_step = 0
             self.episode_rewards = []
             while True:

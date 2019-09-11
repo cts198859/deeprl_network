@@ -74,6 +74,9 @@ class IA2C:
         logging.error('Can not find old checkpoint for %s' % model_dir)
         return False
 
+    def reset(self):
+        self.policy._reset()
+
     def save(self, model_dir, global_step):
         self.saver.save(self.sess, model_dir + 'checkpoint', global_step=global_step)
 

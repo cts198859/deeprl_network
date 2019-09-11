@@ -172,7 +172,7 @@ class CACCEnv:
         self.hs_cur = self.hs[0]
         self.vs_cur = self.vs[0]
         self.us_cur = np.zeros(self.n_agent)
-        self.fp = np.zeros((self.n_agent, self.n_a))
+        self.fp = np.ones((self.n_agent, self.n_a)) / self.n_a
         self.us = [self.us_cur]
         self.rewards = [0]
         return self._get_state()
