@@ -28,14 +28,14 @@ class CACCEnv:
         u_const = (v_next - v) / self.dt
         return v_next, u_const
 
-    def _get_accel(self, i, h_g):
+    def _get_accel(self, i, alpha, beta):
         v = self.vs_cur[i]
         h = self.hs_cur[i]
         if i:
             v_lead = self.vs_cur[i-1]
         else:
             v_lead = self.v0s[self.t]
-        return self.ovm.get_accel(v, v_lead, h, self.alpha, self.beta, h_g)
+        return self.ovm.get_accel(v, v_lead, h, alpha, beta)
 
     def _get_reward(self):
         # give large penalty for collision
@@ -54,13 +54,15 @@ class CACCEnv:
     def _get_veh_state(self, i_veh):
         v_lead = self.vs_cur[i_veh-1] if i_veh else self.v0s[self.t]
         v_state = (self.vs_cur[i_veh] - self.v_star) / self.v_star
-        vdiff_state = (v_lead - self.vs_cur[i_veh]) / VDIFF
+        vdiff_state = np.clip((v_lead - self.vs_cur[i_veh]) / VDIFF, -2, 2)
+        vh = self.ovm.get_vh(self.hs_cur[i_veh])
+        vhdiff_state = np.clip((vh - self.vs_cur[i_veh]) / VDIFF, -2, 2)
         h_state = (self.hs_cur[i_veh] + (v_lead-self.vs_cur[i_veh])*self.dt - 
                    self.h_star) / self.h_star
         # v_state = np.clip((self.vs_cur[i_veh] - self.v_star) / self.v_norm, -2, 2)
         # h_state = np.clip((self.hs_cur[i_veh] - self.h_star) / self.h_norm, -2, 2)
         u_state = self.us_cur[i_veh] / self.u_max
-        return np.array([v_state, vdiff_state, h_state, u_state])
+        return np.array([v_state, vdiff_state, vhdiff_state, h_state, u_state])
 
     def _get_state(self):
         state = []
@@ -191,7 +193,7 @@ class CACCEnv:
         if self.collision:
             reward = -self.G * np.ones(self.n_agent)
         else:
-            rl_hgs = [self.a_map[a] for a in action]
+            rl_params = [self.a_map[a] for a in action]
             hs_next = []
             vs_next = []
             self.us_cur = []
@@ -199,7 +201,8 @@ class CACCEnv:
             for i in range(self.n_agent):
                 # h_g = rl_hgs[i]
                 # u = self._get_accel(i, h_g)
-                u = rl_hgs[i]
+                cur_alpha, cur_beta = rl_params[i]
+                u = self._get_accel(i, cur_alpha, cur_beta)
                 # apply v, u constraints
                 v_next, u_const = self._constrain_speed(self.vs_cur[i], u)
                 self.us_cur.append(u_const)
@@ -226,8 +229,8 @@ class CACCEnv:
         global_reward = np.sum(reward)
         self.rewards.append(global_reward)
         done = False
-        # if self.collision and not self.t % self.batch_size:
-        #     done = True
+        if self.collision and not self.t % self.batch_size:
+            done = True
         if self.t == self.T:
             done = True
         if self.coop_gamma < 0:
@@ -263,12 +266,13 @@ class CACCEnv:
             # if i <= self.n_agent-3:
             #     self.neighbor_mask[i,i+2] = 1
         # 5 levels of high level control: conservative -> aggressive
-        self.n_a_ls = [5] * self.n_agent
-        self.n_a = 5
+        self.n_a_ls = [4] * self.n_agent
+        self.n_a = 4
         # a_interval = (self.h_g - self.h_s) / ((self.n_a+1)*0.5)
-        # disable OVM!
+        # disable OVM h_g as action!
         # self.a_map = np.arange(-10, 11, 5) + self.h_g
-        self.a_map = np.arange(-2, 3, 1)
+        # a_map = (alpha, beta)
+        self.a_map = [(0,0), (0.5,0), (0,0.5), (0.5,0.5)]
         logging.info('action to h_go map:\n %r' % self.a_map)
         self.n_s_ls = []
         for i in range(self.n_agent):
@@ -276,7 +280,7 @@ class CACCEnv:
                 num_n = 1
             else:
                 num_n = 1 + np.sum(self.neighbor_mask[i])
-            self.n_s_ls.append(num_n * 4)
+            self.n_s_ls.append(num_n * 5)
 
     def _init_catchup(self):
         # first vehicle has long headway (4x) and remaining vehicles have random
@@ -355,6 +359,17 @@ class OVMCarFollowing:
         self.h_go = h_go
         self.v_max = v_max
 
+    def get_vh(self, h, h_go=-1):
+        if h_go < 0:
+            h_go = self.h_go
+        if h <= self.h_st:
+            return 0
+        elif self.h_st < h < h_go:
+            return self.v_max / 2 * (1 - np.cos(np.pi * (h-self.h_st) / (h_go-self.h_st)))
+            # vh = self.v_max * ((d-h_st) / (h_go-h_st))
+        else:
+            return self.v_max
+
     def get_accel(self, v, v_lead, h, alpha, beta, h_go=-1):
         """
         Get target acceleration using OVM controller.
@@ -367,15 +382,7 @@ class OVMCarFollowing:
         Returns:
             accel (float): target acceleration
         """
-        if h_go < 0:
-            h_go = self.h_go
-        if h <= self.h_st:
-            vh = 0
-        elif self.h_st < h < h_go:
-            vh = self.v_max / 2 * (1 - np.cos(np.pi * (h-self.h_st) / (h_go-self.h_st)))
-            # vh = self.v_max * ((d-h_st) / (h_go-h_st))
-        else:
-            vh = self.v_max
+        vh = self.get_vh(h, h_go=h_go)
         # alpha is applied to both headway based V and leading speed based V.
         return alpha*(vh-v) + beta*(v_lead-v)
 
