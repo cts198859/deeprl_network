@@ -276,7 +276,7 @@ class CACCEnv:
                 num_n = 1
             else:
                 num_n = 1 + np.sum(self.neighbor_mask[i])
-            self.n_s_ls.append(num_n * 3)
+            self.n_s_ls.append(num_n * 4)
 
     def _init_catchup(self):
         # first vehicle has long headway (4x) and remaining vehicles have random
