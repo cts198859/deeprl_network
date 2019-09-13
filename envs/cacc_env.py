@@ -8,7 +8,7 @@ import pandas as pd
 # sns.set_color_codes()
 COLLISION_WT = 5
 COLLISION_HEADWAY = 10
-
+VDIFF = 5
 
 class CACCEnv:
     def __init__(self, config):
@@ -52,12 +52,15 @@ class CACCEnv:
         return h_rewards + v_rewards + u_rewards + c_rewards
 
     def _get_veh_state(self, i_veh):
+        v_lead = self.vs_cur[i_veh-1] if i_veh else self.v0s[self.t]
         v_state = (self.vs_cur[i_veh] - self.v_star) / self.v_star
-        h_state = (self.hs_cur[i_veh] - self.h_star) / self.h_star
+        vdiff_state = (v_lead - self.vs_cur[i_veh]) / VDIFF
+        h_state = (self.hs_cur[i_veh] + (v_lead-self.vs_cur[i_veh])*self.dt - 
+                   self.h_star) / self.h_star
         # v_state = np.clip((self.vs_cur[i_veh] - self.v_star) / self.v_norm, -2, 2)
         # h_state = np.clip((self.hs_cur[i_veh] - self.h_star) / self.h_norm, -2, 2)
         u_state = self.us_cur[i_veh] / self.u_max
-        return np.array([v_state, h_state, u_state])
+        return np.array([v_state, vdiff_state, h_state, u_state])
 
     def _get_state(self):
         state = []
@@ -194,8 +197,9 @@ class CACCEnv:
             self.us_cur = []
             # update speed
             for i in range(self.n_agent):
-                h_g = rl_hgs[i]
-                u = self._get_accel(i, h_g)
+                # h_g = rl_hgs[i]
+                # u = self._get_accel(i, h_g)
+                u = rl_hgs[i]
                 # apply v, u constraints
                 v_next, u_const = self._constrain_speed(self.vs_cur[i], u)
                 self.us_cur.append(u_const)
@@ -262,8 +266,9 @@ class CACCEnv:
         self.n_a_ls = [5] * self.n_agent
         self.n_a = 5
         # a_interval = (self.h_g - self.h_s) / ((self.n_a+1)*0.5)
-        # self.a_map = np.arange(1, self.n_a+1)*a_interval + self.h_s
-        self.a_map = np.arange(-10, 11, 5) + self.h_g
+        # disable OVM!
+        # self.a_map = np.arange(-10, 11, 5) + self.h_g
+        self.a_map = np.arange(-2, 3, 1)
         logging.info('action to h_go map:\n %r' % self.a_map)
         self.n_s_ls = []
         for i in range(self.n_agent):
@@ -279,7 +284,7 @@ class CACCEnv:
         #self.hs = [(1+0.5*np.random.rand(self.n_agent)) * self.h_star]
         self.hs = [np.ones(self.n_agent) * self.h_star]
         if not self.seed:
-            self.hs[0][0] = self.h_star*4
+            self.hs[0][0] = self.h_star*3.5
         else:
             # s = [0, -1, -0.5, 0.5, 1]
             self.hs[0][0] = self.h_star*(3+np.random.rand())
