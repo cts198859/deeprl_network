@@ -311,13 +311,10 @@ class CACCEnv:
         if not self.seed:
             self.vs = [np.ones(self.n_agent) * 2*self.v_star]
         else:
-            # s = [0, -0.5, -0.25, 0.25, 0.5]
-            # self.vs = [np.ones(self.n_agent) * (2+s[self.seed])*self.v_star]
-            self.vs = [np.ones(self.n_agent) * int(self.v_star*(1.5+np.random.rand())/self.dt)*self.dt]
+            self.vs = [np.ones(self.n_agent) * self.v_star*(1.5+np.random.rand())]
         # leading vehicle is decelerating from 2v_star to v_star with 0.02*u_min
         self.v0s = np.ones(self.T+1) * self.v_star
-        # v0s_decel = np.linspace(self.vs[0][0], self.v_star, 300)
-        v0s_decel = np.arange(self.vs[0][0], self.v_star-0.5*self.dt, -self.dt)
+        v0s_decel = np.linspace(self.vs[0][0], self.v_star, 300)
         self.v0s[:len(v0s_decel)] = v0s_decel
 
     def _load_config(self, config):

@@ -126,11 +126,7 @@ def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
 
     # init env
     env = init_env(config['ENV_CONFIG'], port=port)
-    # for CACC, the test and training seeds are the same
-    if env.name.startswith('atsc'):
-        env.init_test_seeds(seeds)
-    else:
-        env.init_test_seeds([env.seed])
+    env.init_test_seeds(seeds)
 
     # load model for agent
     model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
