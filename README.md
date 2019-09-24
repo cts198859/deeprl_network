@@ -12,7 +12,7 @@ Available MA2C algorithms:
 * CommNet: [Sukhbaatar, Sainbayar, et al. "Learning multiagent communication with backpropagation." Advances in Neural Information Processing Systems, 2016.](https://arxiv.org/pdf/1605.07736.pdf)
 * NeurComm: Inspired from [Gilmer, Justin, et al. "Neural message passing for quantum chemistry." arXiv preprint arXiv:1704.01212, 2017.](https://arxiv.org/pdf/1704.01212.pdf)
 
-Available NMARL scenaios:
+Available NMARL scenarios:
 * ATSC Grid: Adaptive traffic signal control in a synthetic traffic grid.
 * ATSC Monaco: Adaptive traffic signal control in a real-world traffic network from Monaco city.
 * CACC Catch-up: Cooperative adaptive cruise control for catching up the leadinig vehicle.
@@ -22,5 +22,8 @@ Available NMARL scenaios:
 * Python3
 * [Tensorflow](http://www.tensorflow.org/install)
 * [SUMO](http://sumo.dlr.de/wiki/Installing)
+
+## Usages
+Same as [deeprl_signal_control](https://github.com/cts198859/deeprl_signal_control)
 
 
