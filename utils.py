@@ -98,7 +98,7 @@ class Counter:
 
 
 class Trainer():
-    def __init__(self, env, model, global_counter, summary_writer, run_test, output_path=None):
+    def __init__(self, env, model, global_counter, summary_writer, output_path=None):
         self.cur_step = 0
         self.global_counter = global_counter
         self.env = env
@@ -107,13 +107,10 @@ class Trainer():
         self.sess = self.model.sess
         self.n_step = self.model.n_step
         self.summary_writer = summary_writer
-        self.run_test = run_test
         assert self.env.T % self.n_step == 0
         self.data = []
         self.output_path = output_path
-        if run_test:
-            self.test_num = self.env.test_num
-            logging.info('Testing: total test num: %d' % self.test_num)
+        self.env.train_mode = True
         self._init_summary()
 
     def _init_summary(self):
@@ -132,7 +129,7 @@ class Trainer():
     def _get_policy(self, ob, done, mode='train'):
         if self.agent.startswith('ma2c'):
             self.ps = self.env.get_fingerprint()
-            policy = self.model.forward(np.array(ob), done, self.ps)
+            policy = self.model.forward(ob, done, self.ps)
         else:
             policy = self.model.forward(ob, done)
         action = []
@@ -145,16 +142,27 @@ class Trainer():
 
     def _get_value(self, ob, done, action):
         if self.agent.startswith('ma2c'):
-            value = self.model.forward(np.array(ob), done, self.ps, np.array(action), 'v')
+            value = self.model.forward(ob, done, self.ps, np.array(action), 'v')
         else:
             self.naction = self.env.get_neighbor_action(action)
+            if not self.naction:
+                self.naction = np.nan
             value = self.model.forward(ob, done, self.naction, 'v')
         return value
+
+    def _log_episode(self, global_step, mean_reward, std_reward):
+        log = {'agent': self.agent,
+               'step': global_step,
+               'test_id': -1,
+               'avg_reward': mean_reward,
+               'std_reward': std_reward}
+        self.data.append(log)
+        self._add_summary(mean_reward, global_step)
+        self.summary_writer.flush()
 
     def explore(self, prev_ob, prev_done):
         ob = prev_ob
         done = prev_done
-        rewards = []
         for _ in range(self.n_step):
             # pre-decision
             policy, action = self._get_policy(ob, done)
@@ -163,7 +171,7 @@ class Trainer():
             # transition
             self.env.update_fingerprint(policy)
             next_ob, reward, done, global_reward = self.env.step(action)
-            rewards.append(global_reward)
+            self.episode_rewards.append(global_reward)
             global_step = self.global_counter.next()
             self.cur_step += 1
             # collect experience
@@ -177,6 +185,7 @@ class Trainer():
                                    ob: %s, a: %s, pi: %s, r: %.2f, train r: %.2f, done: %r''' %
                              (global_step, self.cur_step,
                               str(ob), str(action), str(policy), global_reward, np.mean(reward), done))
+            # terminal check must be inside batch loop for CACC env
             if done:
                 break
             ob = next_ob
@@ -185,18 +194,24 @@ class Trainer():
         else:
             _, action = self._get_policy(ob, done)
             R = self._get_value(ob, done, action)
-        return ob, done, R, rewards
+        return ob, done, R
 
-    def perform(self, test_ind):
-        ob = self.env.reset(test_ind=test_ind)
+    def perform(self, test_ind, gui=False):
+        ob = self.env.reset(gui=gui, test_ind=test_ind)
         rewards = []
+        # note this done is pre-decision to reset LSTM states!
+        done = True
+        self.model.reset()
         while True:
             if self.agent == 'greedy':
                 action = self.model.forward(ob)
             else:
                 # in on-policy learning, test policy has to be stochastic
-                # policy, action = self._get_policy(ob, False, mode='test')
-                policy, action = self._get_policy(ob, False)
+                if self.env.name.startswith('atsc'):
+                    policy, action = self._get_policy(ob, done)
+                else:
+                    # for mission-critic tasks like CACC, we need deterministic policy
+                    policy, action = self._get_policy(ob, done, mode='test')
                 self.env.update_fingerprint(policy)
             next_ob, reward, done, global_reward = self.env.step(action)
             rewards.append(global_reward)
@@ -207,73 +222,34 @@ class Trainer():
         std_reward = np.std(np.array(rewards))
         return mean_reward, std_reward
 
-    def run_thread(self, coord):
-        '''Multi-threading is disabled'''
-        ob = self.env.reset()
-        done = False
-        cum_reward = 0
-        while not coord.should_stop():
-            ob, done, R, cum_reward = self.explore(ob, done, cum_reward)
-            global_step = self.global_counter.cur_step
-            if self.agent.endswith('a2c'):
-                self.model.backward(R, self.summary_writer, global_step)
-            else:
-                self.model.backward(self.summary_writer, global_step)
-            self.summary_writer.flush()
-            if (self.global_counter.should_stop()) and (not coord.should_stop()):
-                self.env.terminate()
-                coord.request_stop()
-                logging.info('Training: stop condition reached!')
-                return
-
     def run(self):
         while not self.global_counter.should_stop():
-            # test
-            if self.run_test and self.global_counter.should_test():
-                rewards = []
-                global_step = self.global_counter.cur_step
-                self.env.train_mode = False
-                for test_ind in range(self.test_num):
-                    mean_reward, std_reward = self.perform(test_ind)
-                    self.env.terminate()
-                    rewards.append(mean_reward)
-                    log = {'agent': self.agent,
-                           'step': global_step,
-                           'test_id': test_ind,
-                           'avg_reward': mean_reward,
-                           'std_reward': std_reward}
-                    self.data.append(log)
-                avg_reward = np.mean(np.array(rewards))
-                self._add_summary(avg_reward, global_step, is_train=False)
-                logging.info('Testing: global step %d, avg R: %.2f' %
-                             (global_step, avg_reward))
-            # train
-            self.env.train_mode = True
+            # np.random.seed(self.env.seed)
             ob = self.env.reset()
-            done = False
+            # note this done is pre-decision to reset LSTM states!
+            done = True
+            self.model.reset()
             self.cur_step = 0
-            rewards = []
+            self.episode_rewards = []
             while True:
-                ob, done, R, cur_rewards = self.explore(ob, done)
+                ob, done, R = self.explore(ob, done)
                 dt = self.env.T - self.cur_step
-                rewards += cur_rewards
                 global_step = self.global_counter.cur_step
                 self.model.backward(R, dt, self.summary_writer, global_step)
                 # termination
                 if done:
                     self.env.terminate()
                     break
-            rewards = np.array(rewards)
+            rewards = np.array(self.episode_rewards)
             mean_reward = np.mean(rewards)
             std_reward = np.std(rewards)
-            log = {'agent': self.agent,
-                   'step': global_step,
-                   'test_id': -1,
-                   'avg_reward': mean_reward,
-                   'std_reward': std_reward}
-            self.data.append(log)
-            self._add_summary(mean_reward, global_step)
-            self.summary_writer.flush()
+            # NOTE: for CACC we have to run another testing episode after each
+            # training episode since the reward and policy settings are different!
+            if not self.env.name.startswith('atsc'):
+                self.env.train_mode = False
+                mean_reward, std_reward = self.perform(-1)
+                self.env.train_mode = True
+            self._log_episode(global_step, mean_reward, std_reward)
         df = pd.DataFrame(self.data)
         df.to_csv(self.output_path + 'train_reward.csv')
 
@@ -333,22 +309,26 @@ class Tester(Trainer):
 
 
 class Evaluator(Tester):
-    def __init__(self, env, model, output_path):
+    def __init__(self, env, model, output_path, gui=False):
         self.env = env
         self.model = model
         self.agent = self.env.agent
         self.env.train_mode = False
         self.test_num = self.env.test_num
         self.output_path = output_path
+        self.gui = gui
 
     def run(self):
-        is_record = True
+        if self.gui:
+            is_record = False
+        else:
+            is_record = True
         record_stats = False
         self.env.cur_episode = 0
         self.env.init_data(is_record, record_stats, self.output_path)
         time.sleep(1)
         for test_ind in range(self.test_num):
-            reward, _ = self.perform(test_ind)
+            reward, _ = self.perform(test_ind, gui=self.gui)
             self.env.terminate()
             logging.info('test %i, avg reward %.2f' % (test_ind, reward))
             time.sleep(2)
