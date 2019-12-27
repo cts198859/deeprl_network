@@ -24,7 +24,7 @@ Available NMARL scenarios:
 * [SUMO](http://sumo.dlr.de/wiki/Installing)
 
 ## Usages
-First define all hyperparameters (including algorithm and DNN structure) in a config file under `[config_dir]` ([examples](./config)), and create the base directory of each experiement `[base_dir]`. For ATSC Grid, please call `build_file.py` under `envs/large_grid_data/` to generate SUMO network files before training.
+First define all hyperparameters (including algorithm and DNN structure) in a config file under `[config_dir]` ([examples](./config)), and create the base directory of each experiement `[base_dir]`. For ATSC Grid, please call [`build_file.py`](./envs/large_grid_data) to generate SUMO network files before training.
 
 1. To train a new agent, run
 ~~~
@@ -47,7 +47,7 @@ Evaluation data will be output to `[base_dir]/eva_data`. Make sure evaluation se
 ~~~
 python3 main.py --base-dir [base_dir] evaluate --evaluation-seeds [seed] --demo
 ~~~
-It is recommended to use only one evaluation seed for the demo run. This will launch the SUMO GUI, and `./large_grid/data/view.xml` can be applied to visualize queue length and intersectin delay in edge color and thickness. 
+It is recommended to use only one evaluation seed for the demo run. This will launch the SUMO GUI, and [`view.xml`](./envs/large_grid_data) can be applied to visualize queue length and intersectin delay in edge color and thickness. 
 
 ## Citation
 For more implementation details and underlying reasonings, please check our paper [Multi-agent Reinforcement Learning for Networked System Control](https://openreview.net/forum?id=Syx7A3NFvH).
