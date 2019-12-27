@@ -29,7 +29,7 @@ def parse_args():
     sp.add_argument('--config-dir', type=str, required=False,
                     default=default_config_dir, help="experiment config path")
     sp = subparsers.add_parser('evaluate', help="evaluate and compare agents under base dir")
-    sp.add_argument('--evaluate-seeds', type=str, required=False,
+    sp.add_argument('--evaluation-seeds', type=str, required=False,
                     default=','.join([str(i) for i in range(2000, 2500, 10)]),
                     help="random seeds for evaluation, split by ,")
     sp.add_argument('--demo', action='store_true', help="shows SUMO gui")
@@ -114,11 +114,8 @@ def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
     if not check_dir(agent_dir):
         logging.error('Evaluation: %s does not exist!' % agent)
         return
-    if not demo:
-        # load config file for env
-        config_dir = find_file(agent_dir + '/data/')
-    else:
-        config_dir = find_file(agent_dir + '/')
+    # load config file 
+    config_dir = find_file(agent_dir + '/data/')
     if not config_dir:
         return
     config = configparser.ConfigParser()
@@ -132,10 +129,7 @@ def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
     model = init_agent(env, config['MODEL_CONFIG'], 0, 0)
     if model is None:
         return
-    if not demo:
-        model_dir = agent_dir + '/model/'
-    else:
-        model_dir = agent_dir + '/'
+    model_dir = agent_dir + '/model/'
     if not model.load(model_dir):
         return
     # collect evaluation data
@@ -152,7 +146,7 @@ def evaluate(args):
     else:
         output_dir = None
     # enforce the same evaluation seeds across agents
-    seeds = args.evaluate_seeds
+    seeds = args.evaluation_seeds
     logging.info('Evaluation: random seeds: %s' % seeds)
     if not seeds:
         seeds = []
