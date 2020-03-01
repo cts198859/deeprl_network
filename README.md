@@ -20,8 +20,8 @@ Available NMARL scenarios:
 
 ## Requirements
 * Python3
-* [Tensorflow](http://www.tensorflow.org/install)
-* [SUMO](http://sumo.dlr.de/wiki/Installing)
+* [Tensorflow](http://www.tensorflow.org/install) 
+* [SUMO](http://sumo.dlr.de/wiki/Installing) : Please use version 1.1.0 to reproduce paper results.
 
 ## Usages
 First define all hyperparameters (including algorithm and DNN structure) in a config file under `[config_dir]` ([examples](./config)), and create the base directory of each experiement `[base_dir]`. For ATSC Grid, please call [`build_file.py`](./envs/large_grid_data) to generate SUMO network files before training.
