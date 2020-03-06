@@ -19,9 +19,9 @@ Available NMARL scenarios:
 * CACC Slow-down: Cooperative adaptive cruise control for following the leading vehicle to slow down.
 
 ## Requirements
-* Python3
-* [Tensorflow](http://www.tensorflow.org/install) 
-* [SUMO](http://sumo.dlr.de/wiki/Installing) : Please use version 1.1.0 to reproduce paper results.
+* Python3 == 3.5.2
+* [Tensorflow](http://www.tensorflow.org/install) == 1.12.0 
+* [SUMO](http://sumo.dlr.de/wiki/Installing) == 1.1.0
 
 ## Usages
 First define all hyperparameters (including algorithm and DNN structure) in a config file under `[config_dir]` ([examples](./config)), and create the base directory of each experiement `[base_dir]`. For ATSC Grid, please call [`build_file.py`](./envs/large_grid_data) to generate SUMO network files before training.
