@@ -1,119 +1,58 @@
 import numpy as np
-import tensorflow as tf
+import torch
+import torch.nn as nn
 
 """
 initializers
 """
-DEFAULT_SCALE = np.sqrt(2)
-DEFAULT_MODE = 'fan_in'
+def init_layer(layer, layer_type):
+    if layer_type == 'fc':
+        nn.init.orthogonal_(layer.weight.data)
+        nn.init.constant_(layer.bias.data, 0)
+    elif layer_type == 'lstm':
+        nn.init.orthogonal_(layer.weight_ih.data)
+        nn.init.orthogonal_(layer.weight_hh.data)
+        nn.init.constant_(layer.bias_ih.data, 0)
+        nn.init.constant_(layer.bias_hh.data, 0)
 
-def ortho_init(scale=DEFAULT_SCALE, mode=None):
-    def _ortho_init(shape, dtype, partition_info=None):
-        # lasagne ortho init for tf
-        shape = tuple(shape)
-        if len(shape) == 2: # fc: in, out
-            flat_shape = shape
-        elif (len(shape) == 3) or (len(shape) == 4): # 1d/2dcnn: (in_h), in_w, in_c, out
-            flat_shape = (np.prod(shape[:-1]), shape[-1])
-        a = np.random.standard_normal(flat_shape)
-        u, _, v = np.linalg.svd(a, full_matrices=False)
-        q = u if u.shape == flat_shape else v # pick the one with the correct shape
-        q = q.reshape(shape)
-        return (scale * q).astype(np.float32)
-    return _ortho_init
-
-
-def norm_init(scale=DEFAULT_SCALE, mode=DEFAULT_MODE):
-    def _norm_init(shape, dtype, partition_info=None):
-        shape = tuple(shape)
-        if len(shape) == 2:
-            n_in = shape[0]
-        elif (len(shape) == 3) or (len(shape) == 4):
-            n_in = np.prod(shape[:-1])
-        a = np.random.standard_normal(shape)
-        if mode == 'fan_in':
-            n = n_in
-        elif mode == 'fan_out':
-            n = shape[-1]
-        elif mode == 'fan_avg':
-            n = 0.5 * (n_in + shape[-1])
-        return (scale * a / np.sqrt(n)).astype(np.float32)
-
-DEFAULT_METHOD = ortho_init
 """
-layers
+layer helpers
 """
-def conv(x, scope, n_out, f_size, stride=1, pad='VALID', f_size_w=None, act=tf.nn.relu,
-         conv_dim=1, init_scale=DEFAULT_SCALE, init_mode=None, init_method=DEFAULT_METHOD):
-    with tf.variable_scope(scope):
-        b = tf.get_variable("b", [n_out], initializer=tf.constant_initializer(0.0))
-        if conv_dim == 1:
-            n_c = x.shape[2].value
-            w = tf.get_variable("w", [f_size, n_c, n_out],
-                                initializer=init_method(init_scale, init_mode))
-            z = tf.nn.conv1d(x, w, stride=stride, padding=pad) + b
-        elif conv_dim == 2:
-            n_c = x.shape[3].value
-            if f_size_w is None:
-                f_size_w = f_size
-            w = tf.get_variable("w", [f_size, f_size_w, n_c, n_out],
-                                initializer=init_method(init_scale, init_mode))
-            z = tf.nn.conv2d(x, w, strides=[1, stride, stride, 1], padding=pad) + b
-        return act(z)
-
-
-def fc(x, scope, n_out, act=tf.nn.relu, init_scale=DEFAULT_SCALE,
-       init_mode=DEFAULT_MODE, init_method=DEFAULT_METHOD):
-    with tf.variable_scope(scope):
-        n_in = x.shape[1].value
-        w = tf.get_variable("w", [n_in, n_out],
-                            initializer=init_method(init_scale, init_mode))
-        b = tf.get_variable("b", [n_out], initializer=tf.constant_initializer(0.0))
-        z = tf.matmul(x, w) + b
-        return act(z)
-
-
 def batch_to_seq(x):
     n_step = x.shape[0].value
     if len(x.shape) == 1:
-        x = tf.expand_dims(x, -1)
-    return tf.split(axis=0, num_or_size_splits=n_step, value=x)
+        x = torch.unsqueeze(x, -1)
+    return torch.chunk(x, n_step)
 
 
 def seq_to_batch(x):
-    return tf.concat(x, axis=0)
+    return torch.cat(x)
 
 
-def lstm(xs, dones, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
-         init_method=DEFAULT_METHOD):
+def run_rnn(layer, xs, dones, s):
     xs = batch_to_seq(xs)
     # need dones to reset states
     dones = batch_to_seq(dones)
-    n_in = xs[0].shape[1].value
-    n_out = s.shape[0] // 2
-    with tf.variable_scope(scope):
-        wx = tf.get_variable("wx", [n_in, n_out*4],
-                             initializer=init_method(init_scale, init_mode))
-        wh = tf.get_variable("wh", [n_out, n_out*4],
-                             initializer=init_method(init_scale, init_mode))
-        b = tf.get_variable("b", [n_out*4], initializer=tf.constant_initializer(0.0))
-    s = tf.expand_dims(s, 0)
-    c, h = tf.split(axis=1, num_or_size_splits=2, value=s)
+    n_in = int(xs[0].shape[1])
+    n_out = int(s.shape[0]) // 2
+    s = torch.unsqueeze(s, 0)
+    h, c = torch.chunk(s, 2, dim=1)
     for ind, (x, done) in enumerate(zip(xs, dones)):
         c = c * (1-done)
         h = h * (1-done)
-        z = tf.matmul(x, wx) + tf.matmul(h, wh) + b
-        i, f, o, u = tf.split(axis=1, num_or_size_splits=4, value=z)
-        i = tf.nn.sigmoid(i)
-        f = tf.nn.sigmoid(f)
-        o = tf.nn.sigmoid(o)
-        u = tf.tanh(u)
-        c = f*c + i*u
-        h = o*tf.tanh(c)
+        h, c = layer(x, (h, c))
         xs[ind] = h
-    s = tf.concat(axis=1, values=[c, h])
-    return seq_to_batch(xs), tf.squeeze(s)
+    s = torch.cat([h, c], dim=1)
+    return seq_to_batch(xs), torch.squeeze(s)
 
+
+def one_hot(x, oh_dim, dim=-1):
+    oh_shape = list(x.shape)
+    oh_shape[dim] = oh_dim
+    x_oh = torch.zeros(oh_shape)
+    x_oh.scatter(dim, x, 1)
+    return x_oh
+    
 
 def lstm_comm(xs, ps, dones, masks, s, scope, init_scale=DEFAULT_SCALE, init_mode=DEFAULT_MODE,
               init_method=DEFAULT_METHOD):

@@ -4,12 +4,13 @@ IA2C and MA2C algorithms
 """
 
 import os
+import torch.nn as nn
+import torch.optim as optim
 from agents.utils import OnPolicyBuffer, MultiAgentOnPolicyBuffer, Scheduler
 from agents.policies import (LstmPolicy, FPPolicy, ConsensusPolicy, NCMultiAgentPolicy,
                              IC3MultiAgentPolicy, DIALMultiAgentPolicy)
 import logging
 import numpy as np
-import tensorflow as tf
 
 
 class IA2C:
@@ -32,14 +33,21 @@ class IA2C:
             self.trans_buffer[i].add_transition(ob[i], naction[i], action[i], reward, value[i], done)
 
     def backward(self, Rends, dt, summary_writer=None, global_step=None):
-        cur_lr = self.lr_scheduler.get(self.n_step)
+        self.optimizer.zero_grad()
         for i in range(self.n_agent):
             obs, nas, acts, dones, Rs, Advs = self.trans_buffer[i].sample_transition(Rends[i], dt)
             if i == 0:
-                self.policy[i].backward(self.sess, obs, nas, acts, dones, Rs, Advs, cur_lr,
+                self.policy[i].backward(obs, nas, acts, dones, Rs, Advs,
+                                        self.e_coef, self.v_coef,
                                         summary_writer=summary_writer, global_step=global_step)
             else:
-                self.policy[i].backward(self.sess, obs, nas, acts, dones, Rs, Advs, cur_lr)
+                self.policy[i].backward(obs, nas, acts, dones, Rs, Advs,
+                                        self.e_coef, self.v_coef)
+        if self.max_grad_norm > 0:
+            nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+        self.optimizer.step()
+        if self.lr_decay != 'constant':
+            self._update_lr()
 
     def forward(self, obs, done, nactions=None, out_type='p'):
         out = []
@@ -129,33 +137,42 @@ class IA2C:
                 policy.append(LstmPolicy(self.n_s_ls[i], self.n_a_ls[i], n_n, self.n_step,
                                          n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i,
                                          na_dim_ls=na_dim_ls, identical=False))
-        return policy
+        return nn.ModuleList(policy)
 
     def _init_scheduler(self, model_config):
         # init lr scheduler
-        lr_init = model_config.getfloat('lr_init')
-        lr_decay = model_config.get('lr_decay')
+        self.lr_init = model_config.getfloat('lr_init')
+        self.lr_decay = model_config.get('lr_decay')
         if lr_decay == 'constant':
-            self.lr_scheduler = Scheduler(lr_init, decay=lr_decay)
+            self.lr_scheduler = Scheduler(self.lr_init, decay=self.lr_decay)
         else:
             lr_min = model_config.getfloat('lr_min')
-            self.lr_scheduler = Scheduler(lr_init, lr_min, self.total_step, decay=lr_decay)
+            self.lr_scheduler = Scheduler(self.lr_init, lr_min, self.total_step, decay=self.lr_decay)
 
     def _init_train(self, model_config, distance_mask, coop_gamma):
         # init lr scheduler
         self._init_scheduler(model_config)
-        v_coef = model_config.getfloat('value_coef')
-        e_coef = model_config.getfloat('entropy_coef')
-        max_grad_norm = model_config.getfloat('max_grad_norm')
+        # init parameters for grad computation
+        self.v_coef = model_config.getfloat('value_coef')
+        self.e_coef = model_config.getfloat('entropy_coef')
+        self.max_grad_norm = model_config.getfloat('max_grad_norm')
+        # init optimizer
         alpha = model_config.getfloat('rmsp_alpha')
         epsilon = model_config.getfloat('rmsp_epsilon')
+        self.optimizer = optim.RMSprop(self.policy.parameters(), self.lr_init, 
+                                       eps=epsilon, alpha=alpha)
+        # init transition buffer
         gamma = model_config.getfloat('gamma')
         self.trans_buffer = []
         for i in range(self.n_agent):
-            # init loss
-            self.policy[i].prepare_loss(v_coef, e_coef, max_grad_norm, alpha, epsilon)
             # init replay buffer
             self.trans_buffer.append(OnPolicyBuffer(gamma, coop_gamma, distance_mask[i]))
+
+    def _update_lr(self):
+        # TODO: refactor this using optim.lr_scheduler
+        cur_lr = self.lr_scheduler.get(self.n_step)
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = cur_lr
 
 
 class IA2C_FP(IA2C):

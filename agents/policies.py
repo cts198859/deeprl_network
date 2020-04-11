@@ -1,9 +1,11 @@
 import numpy as np
-import tensorflow as tf
-from agents.utils import *
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from agents.utils import init_layer, one_hot, run_rnn
 
 
-class Policy:
+class Policy(nn.Module):
     def __init__(self, n_a, n_s, n_step, policy_name, agent_name, identical):
         self.name = policy_name
         if agent_name is not None:
@@ -13,68 +15,64 @@ class Policy:
         self.n_s = n_s
         self.n_step = n_step
         self.identical = identical
+        self._init_layer = lambda l, t: init_layer(l, t)
 
     def forward(self, ob, *_args, **_kwargs):
         raise NotImplementedError()
 
-    def prepare_loss(self, v_coef, e_coef, max_grad_norm, alpha, epsilon):
-        self.A = tf.placeholder(tf.int32, [self.n_step])
-        self.ADV = tf.placeholder(tf.float32, [self.n_step])
-        self.R = tf.placeholder(tf.float32, [self.n_step])
-        A_sparse = tf.one_hot(self.A, self.n_a)
-        log_pi = tf.log(tf.clip_by_value(self.pi, 1e-10, 1.0))
-        entropy = -tf.reduce_sum(self.pi * log_pi, axis=1)
-        entropy_loss = -tf.reduce_mean(entropy) * e_coef
-        policy_loss = -tf.reduce_mean(tf.reduce_sum(log_pi * A_sparse, axis=1) * self.ADV)
-        value_loss = tf.reduce_mean(tf.square(self.R - self.v)) * 0.5 * v_coef
-        self.loss = policy_loss + value_loss + entropy_loss
-
-        wts = tf.trainable_variables(scope=self.name)
-        grads = tf.gradients(self.loss, wts)
-        if max_grad_norm > 0:
-            grads, self.grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
-        self.lr = tf.placeholder(tf.float32, [])
-        self.optimizer = tf.train.RMSPropOptimizer(learning_rate=self.lr, decay=alpha,
-                                                   epsilon=epsilon)
-        self._train = self.optimizer.apply_gradients(list(zip(grads, wts)))
-        # monitor training
-        summaries = []
-        summaries.append(tf.summary.scalar('loss/%s_entropy_loss' % self.name, entropy_loss))
-        summaries.append(tf.summary.scalar('loss/%s_policy_loss' % self.name, policy_loss))
-        summaries.append(tf.summary.scalar('loss/%s_value_loss' % self.name, value_loss))
-        summaries.append(tf.summary.scalar('loss/%s_total_loss' % self.name, self.loss))
-        summaries.append(tf.summary.scalar('train/%s_lr' % self.name, self.lr))
-        summaries.append(tf.summary.scalar('train/%s_gradnorm' % self.name, self.grad_norm))
-        self.summary = tf.summary.merge(summaries)
-
-    def _build_actor_head(self, h, n_a=None, agent_name=None):
-        name = 'pi'
-        if agent_name is not None:
-            name += '_' + str(agent_name)
+    def _init_actor_head(self, n_h, n_a=None):
         if n_a is None:
             n_a = self.n_a
-        pi = fc(h, name, n_a, act=tf.nn.softmax)
-        return pi
+        # only discrete control is supported for now
+        self.actor_head = self._init_layer(nn.Linear(n_h, n_a), 'fc') 
 
-    def _build_critic_head(self, h, na, n_n=None, agent_name=None):
-        name = 'v'
-        if agent_name is not None:
-            name += '_' + str(agent_name)
+    def _init_critic_head(self, n_h, n_n=None):
         if n_n is None:
             n_n = int(self.n_n)
         if n_n:
             if self.identical:
-                na_sparse = tf.one_hot(na, self.n_a, axis=-1)
-                na_sparse = tf.reshape(na_sparse, [-1, self.n_a*n_n])
+                n_na_sparse = self.n_a*n_n
+            else:
+                n_na_sparse = sum(self.na_dim_ls)
+            n_h += n_na_sparse
+        self.critic_head = self._init_layer(nn.Linear(n_h, 1), 'fc')
+
+    def _run_critic_head(self, h, na, n_n=None):
+        if n_n is None:
+            n_n = int(self.n_n)
+        if n_n:
+            na = torch.from_numpy(na)
+            if self.identical:
+                na_sparse = one_hot(na, self.n_a)
+                na_sparse = torch.view(na_sparse, [-1, self.n_a*n_n])
             else:
                 na_sparse = []
-                na_ls = tf.split(axis=1, num_or_size_splits=n_n, value=na)
+                na_ls = torch.chunk(na, n_n, dim=1)
                 for na_val, na_dim in zip(na_ls, self.na_dim_ls):
-                    na_sparse.append(tf.squeeze(tf.one_hot(na_val, na_dim, axis=-1), axis=1))
-                na_sparse = tf.concat(na_sparse, 1)
-            h = tf.concat([h, na_sparse], 1)
-        v = fc(h, name, 1, act=lambda x: x)
-        return v
+                    na_sparse.append(torch.squeeze(one_hot(na_val, na_dim), dim=1))
+                na_sparse = torch.cat(na_sparse, dim=1)
+            h = tf.cat([h, na_sparse], dim=1)
+        return self.critic_head(h)
+
+    def _run_loss(self, actor_dist, vs, max_grad_norm, As, Rs, Advs):
+        log_probs = actor_dist.log_prob(one_hot(As, self.n_a)).unsqueeze(-1)
+        self.policy_loss = -(log_probs * Advs).mean()
+        self.entropy_loss = -actor_dist.entropy().mean() * e_coef
+        self.value_loss = (Rs - vs).pow(2).mean() * v_coef
+        self.loss = policy_loss + value_loss + entropy_loss
+        self.loss.backward()
+
+    
+    def _update_tensorboard(self, summary_writer, global_step)
+        # monitor training
+        summary_writer.add_scalar('loss/{}_entropy_loss'.format(self.name), self.entropy_loss,
+                                  global_step=global_step)
+        summary_writer.add_scalar('loss/{}_policy_loss'.format(self.name), self.policy_loss,
+                                  global_step=global_step)
+        summary_writer.add_scalar('loss/{}_value_loss'.format(self.name), self.value_loss,
+                                  global_step=global_step)
+        summary_writer.add_scalar('loss/{}_total_loss'.format(self.name), self.loss,
+                                  global_step=global_step)
 
 
 class LstmPolicy(Policy):
@@ -86,72 +84,47 @@ class LstmPolicy(Policy):
         self.n_lstm = n_lstm
         self.n_fc = n_fc
         self.n_n = n_n
-        self.ob_fw = tf.placeholder(tf.float32, [1, n_s]) # forward 1-step
-        self.done_fw = tf.placeholder(tf.float32, [1])
-        self.ob_bw = tf.placeholder(tf.float32, [n_step, n_s]) # backward n-step
-        if self.n_n:
-            self.naction_fw = tf.placeholder(tf.int32, [1, n_n])
-            self.naction_bw = tf.placeholder(tf.int32, [n_step, n_n])
-        self.done_bw = tf.placeholder(tf.float32, [n_step])
-        self.states = tf.placeholder(tf.float32, [n_lstm * 2])
-        with tf.variable_scope(self.name):
-            self.pi_fw, self.v_fw, self.new_states = self._build_net('forward')
-        with tf.variable_scope(self.name, reuse=True):
-            self.pi, self.v, _ = self._build_net('backward')
+        self._init_net()
         self._reset()
 
-    def backward(self, sess, obs, nactions, acts, dones, Rs, Advs, cur_lr,
-                 summary_writer=None, global_step=None):
-        ins = {self.ob_bw: obs,
-               self.done_bw: dones,
-               self.states: self.states_bw,
-               self.A: acts,
-               self.ADV: Advs,
-               self.R: Rs,
-               self.lr: cur_lr}
-        if self.n_n:
-            ins[self.naction_bw] = nactions
-        summary, _ = sess.run([self.summary, self._train], ins)
-        self.states_bw = np.copy(self.states_fw)
+    def backward(self, obs, nactions, acts, dones, Rs, Advs,
+                 e_coef, v_coef, summary_writer=None, global_step=None):
+        obs = torch.from_numpy(obs)
+        dones = torch.from_numpy(dones)
+        xs = F.relu(self.fc_layer(obs))
+        hs, new_states = run_rnn(self.lstm_layer, xs, dones, self.states_bw)
+        if not torch.eq(new_states, self.states_fw):
+            print('error: LSTM forward/backward states do not match!')
+            print('forward: {}'.format(self.states_fw))
+            print('backward: {}'.format(new_states))
+        self.states_bw = new_states
+        nactions = torch.from_numpy(nactions)
+        actor_dist = nn.distributions.categorical.Categorical(logits=F.log_softmax(self.actor_head(hs)))
+        vs = self._run_critic_head(hs, nactions)
+        self._run_loss(actor_dist, vs, torch.from_numpy(acts), torch.from_numpy(Rs), torch.from_numpy(Advs))
+        self.states_bw = new_states
         if summary_writer is not None:
-            summary_writer.add_summary(summary, global_step=global_step)
+            _update_tensorboard(summary_writer, global_step)
 
-    def forward(self, sess, ob, done, naction=None, out_type='p'):
-        # update state only when p is called
-        ins = {self.ob_fw: np.array([ob]),
-               self.done_fw: np.array([done]),
-               self.states: self.states_fw}
+    def forward(self, ob, done, naction=None, out_type='p'):
+        x = F.relu(self.fc_layer(ob))
+        h, new_states = run_rnn(self.lstm_layer, x, done, self.states_fw)
         if out_type.startswith('p'):
-            outs = [self.pi_fw, self.new_states]
+            self.states_fw = new_states
+            return F.softmax(self.actor_head(h))
         else:
-            outs = [self.v_fw]
-            if self.n_n:
-                ins[self.naction_fw] = np.array([naction])
-        out_values = sess.run(outs, ins)
-        out_value = out_values[0]
-        if out_type.startswith('p'):
-            self.states_fw = out_values[-1]
-        return out_value
+            return self._run_critic_head(h, naction)
 
-    def _build_net(self, in_type):
-        if in_type == 'forward':
-            ob = self.ob_fw
-            done = self.done_fw
-            naction = self.naction_fw if self.n_n else None
-        else:
-            ob = self.ob_bw
-            done = self.done_bw
-            naction = self.naction_bw if self.n_n else None
-        h = fc(ob, 'fc', self.n_fc)
-        h, new_states = lstm(h, done, self.states, 'lstm')
-        pi = self._build_actor_head(h)
-        v = self._build_critic_head(h, naction)
-        return tf.squeeze(pi), tf.squeeze(v), new_states
+    def _init_net(self):
+        self.fc_layer = self._init_layer(nn.Linear(self.n_s, self.n_fc), 'fc')
+        self.lstm_layer = self._init_layer(nn.LSTMCell(self.n_fc, self.n_lstm), 'lstm')
+        self._init_actor_head(self.n_lstm)
+        self._init_critic_head(self.n_lstm)
 
     def _reset(self):
         # forget the cumulative states every cum_step
-        self.states_fw = np.zeros(self.n_lstm * 2, dtype=np.float32)
-        self.states_bw = np.zeros(self.n_lstm * 2, dtype=np.float32)
+        self.states_fw = torch.zeros(self.n_lstm * 2)
+        self.states_bw = torch.zeros(self.n_lstm * 2)
 
 
 class FPPolicy(LstmPolicy):
