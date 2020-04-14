@@ -100,7 +100,7 @@ def train(args):
     model.load(dirs['model'], train_mode=True)
 
     # disable multi-threading for safe SUMO implementation
-    summary_writer = SummaryWriter(dirs['log'])
+    summary_writer = SummaryWriter(dirs['log'], flush_secs=10000)
     trainer = Trainer(env, model, global_counter, summary_writer, output_path=dirs['data'])
     trainer.run()
 
