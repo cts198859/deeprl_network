@@ -1,7 +1,6 @@
 import itertools
 import logging
 import numpy as np
-import tensorflow as tf
 import time
 import os
 import pandas as pd
@@ -111,20 +110,12 @@ class Trainer():
         self.data = []
         self.output_path = output_path
         self.env.train_mode = True
-        self._init_summary()
-
-    def _init_summary(self):
-        self.train_reward = tf.placeholder(tf.float32, [])
-        self.train_summary = tf.summary.scalar('train_reward', self.train_reward)
-        self.test_reward = tf.placeholder(tf.float32, [])
-        self.test_summary = tf.summary.scalar('test_reward', self.test_reward)
 
     def _add_summary(self, reward, global_step, is_train=True):
         if is_train:
-            summ = self.sess.run(self.train_summary, {self.train_reward: reward})
+            self.summary_writer.add_scalar('train_reward', reward, global_step=global_step)
         else:
-            summ = self.sess.run(self.test_summary, {self.test_reward: reward})
-        self.summary_writer.add_summary(summ, global_step=global_step)
+            self.summary_writer.add_scalar('test_reward', reward, global_step=global_step)
 
     def _get_policy(self, ob, done, mode='train'):
         if self.agent.startswith('ma2c'):
@@ -262,10 +253,6 @@ class Tester(Trainer):
         self.output_path = output_path
         self.data = []
         logging.info('Testing: total test num: %d' % self.test_num)
-
-    def _init_summary(self):
-        self.reward = tf.placeholder(tf.float32, [])
-        self.summary = tf.summary.scalar('test_reward', self.reward)
 
     def run_offline(self):
         # enable traffic measurments for offline test

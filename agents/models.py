@@ -19,10 +19,10 @@ class IA2C:
     limited to neighborhood area only.
     """
     def __init__(self, n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
-                 total_step, model_config, seed=0):
+                 total_step, model_config, seed=0, use_gpu=False):
         self.name = 'ia2c'
         self._init_algo(n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
-                        total_step, seed, model_config)
+                        total_step, seed, use_gpu, model_config)
 
     def add_transition(self, ob, naction, action, reward, value, done):
         if self.reward_norm > 0:
@@ -54,32 +54,38 @@ class IA2C:
         if nactions is None:
             nactions = [None] * self.n_agent
         for i in range(self.n_agent): 
-            cur_out = self.policy[i].forward(self.sess, obs[i], done, nactions[i], out_type)
+            cur_out = self.policy[i](self.sess, obs[i], done, nactions[i], out_type)
             out.append(cur_out)
         return out
 
-    def load(self, model_dir, checkpoint=None):
+    def load(self, model_dir, global_step=None, train_mode=False):
         save_file = None
         save_step = 0
         if os.path.exists(model_dir):
-            if checkpoint is None:
+            if global_step is None:
                 for file in os.listdir(model_dir):
                     if file.startswith('checkpoint'):
-                        prefix = file.split('.')[0]
-                        tokens = prefix.split('-')
+                        tokens = file.split('.')[0].split('-')
                         if len(tokens) != 2:
                             continue
                         cur_step = int(tokens[1])
                         if cur_step > save_step:
-                            save_file = prefix
+                            save_file = file
                             save_step = cur_step
             else:
-                save_file = 'checkpoint-' + str(int(checkpoint))
+                save_file = 'checkpoint-{:d}.pt'.format(global_step)
         if save_file is not None:
-            self.saver.restore(self.sess, model_dir + save_file)
-            logging.info('Checkpoint loaded: %s' % save_file)
+            file_path = model_dir + save_file
+            checkpoint = torch.load(file_path)
+            logging.info('Checkpoint loaded: {}'.format(file_path))
+            self.policy.load_state_dict(checkpoint['model_state_dict'])
+            if train_mode:
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                self.policy.train()
+            else:
+                self.policy.eval()
             return True
-        logging.error('Can not find old checkpoint for %s' % model_dir)
+        logging.error('Can not find checkpoint for {}'.format(model_dir))
         return False
 
     def reset(self):
@@ -87,10 +93,15 @@ class IA2C:
             self.policy[i]._reset()
 
     def save(self, model_dir, global_step):
-        self.saver.save(self.sess, model_dir + 'checkpoint', global_step=global_step)
+        file_path = model_dir + 'checkpoint-{:d}.pt'.format(global_step)
+        torch.save({'global_step': global_step,
+                    'model_state_dict': self.policy.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict()},
+                    file_path)
+        logging.info('Checkpoint saved: {}'.format(file_path))
 
     def _init_algo(self, n_s_ls, n_a_ls, neighbor_mask, distance_mask, coop_gamma,
-                   total_step, seed, model_config):
+                   total_step, seed, use_gpu, model_config):
         # init params
         self.n_s_ls = n_s_ls
         self.n_a_ls = n_a_ls
@@ -110,18 +121,26 @@ class IA2C:
         self.n_step = model_config.getint('batch_size')
         self.n_fc = model_config.getint('num_fc')
         self.n_lstm = model_config.getint('num_lstm')
-        # init tf
-        tf.reset_default_graph()
-        tf.set_random_seed(seed)
-        config = tf.ConfigProto(allow_soft_placement=True)
-        self.sess = tf.Session(config=config)
+        # init torch
+        if use_gpu and torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+            self.device = torch.device("cuda:0")
+            logging.info('Use gpu for pytorch...')
+        else:
+            torch.manual_seed(seed)
+            torch.set_num_threads(1)
+            self.device = torch.device("cpu")
+            logging.info('Use cpu for pytorch...')
+
         self.policy = self._init_policy()
-        self.saver = tf.train.Saver(max_to_keep=5)
+        self.policy.to(self.device)
+        
         # init exp buffer and lr scheduler for training
         if total_step:
             self.total_step = total_step
             self._init_train(model_config, distance_mask, coop_gamma)
-        self.sess.run(tf.global_variables_initializer())
 
     def _init_policy(self):
         policy = []
@@ -129,13 +148,13 @@ class IA2C:
             n_n = np.sum(self.neighbor_mask[i])
             if self.identical_agent:
                 policy.append(LstmPolicy(self.n_s_ls[i], self.n_a_ls[i], n_n, self.n_step,
-                                         n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i))
+                                         n_fc=self.n_fc, n_lstm=self.n_lstm, name='{:d}'.format(i)))
             else:
                 na_dim_ls = []
                 for j in np.where(self.neighbor_mask[i] == 1)[0]:
                     na_dim_ls.append(self.n_a_ls[j])
                 policy.append(LstmPolicy(self.n_s_ls[i], self.n_a_ls[i], n_n, self.n_step,
-                                         n_fc=self.n_fc, n_lstm=self.n_lstm, name='%d' % i,
+                                         n_fc=self.n_fc, n_lstm=self.n_lstm, name='{:d}'.format(i),
                                          na_dim_ls=na_dim_ls, identical=False))
         return nn.ModuleList(policy)
 

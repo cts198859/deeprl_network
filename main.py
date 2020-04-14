@@ -6,8 +6,8 @@ Main function for training and evaluating MARL algorithms in NMARL envs
 import argparse
 import configparser
 import logging
-import tensorflow as tf
 import threading
+from torch.utils.tensorboard.writer import SummaryWriter
 from envs.cacc_env import CACCEnv
 from envs.large_grid_env import LargeGridEnv
 from envs.real_net_env import RealNetEnv
@@ -97,16 +97,17 @@ def train(args):
     # init centralized or multi agent
     seed = config.getint('ENV_CONFIG', 'seed')
     model = init_agent(env, config['MODEL_CONFIG'], total_step, seed)
+    model.load(dirs['model'], train_mode=True)
 
     # disable multi-threading for safe SUMO implementation
-    summary_writer = tf.summary.FileWriter(dirs['log'])
+    summary_writer = SummaryWriter(dirs['log'])
     trainer = Trainer(env, model, global_counter, summary_writer, output_path=dirs['data'])
     trainer.run()
 
     # save model
     final_step = global_counter.cur_step
-    logging.info('Training: save final model at step %d ...' % final_step)
     model.save(dirs['model'], final_step)
+    summary_writer.close()
 
 
 def evaluate_fn(agent_dir, output_dir, seeds, port, demo):
