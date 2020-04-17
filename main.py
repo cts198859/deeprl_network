@@ -11,15 +11,15 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from envs.cacc_env import CACCEnv
 from envs.large_grid_env import LargeGridEnv
 from envs.real_net_env import RealNetEnv
-from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
+from agents.models import IA2C
+# from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
-                   init_dir, init_log, init_test_flag,
-                   plot_evaluation, plot_train)
+                   init_dir, init_log, init_test_flag)
 
 
 def parse_args():
-    default_base_dir = '/Users/tchu/Documents/rl_test/deeprl_dist/ia2c_grid_0.9'
+    default_base_dir = '/Users/ctianshu/Documents/deeprl_net/ia2c_grid_0.9'
     default_config_dir = './config/config_ia2c_grid.ini'
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-dir', type=str, required=False,

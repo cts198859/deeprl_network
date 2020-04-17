@@ -59,13 +59,6 @@ def init_test_flag(test_mode):
     return False, False
 
 
-def plot_train(data_dirs, labels):
-    pass
-
-def plot_evaluation(data_dirs, labels):
-    pass
-
-
 class Counter:
     def __init__(self, total_step, test_step, log_step):
         self.counter = itertools.count(1)
@@ -103,7 +96,6 @@ class Trainer():
         self.env = env
         self.agent = self.env.agent
         self.model = model
-        self.sess = self.model.sess
         self.n_step = self.model.n_step
         self.summary_writer = summary_writer
         assert self.env.T % self.n_step == 0
@@ -230,6 +222,8 @@ class Trainer():
                 # termination
                 if done:
                     self.env.terminate()
+                    # pytorch implementation is faster, wait SUMO for 1s 
+                    time.sleep(1)
                     break
             rewards = np.array(self.episode_rewards)
             mean_reward = np.mean(rewards)
@@ -241,6 +235,7 @@ class Trainer():
                 mean_reward, std_reward = self.perform(-1)
                 self.env.train_mode = True
             self._log_episode(global_step, mean_reward, std_reward)
+
         df = pd.DataFrame(self.data)
         df.to_csv(self.output_path + 'train_reward.csv')
 
