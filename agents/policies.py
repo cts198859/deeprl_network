@@ -215,7 +215,7 @@ class NCMultiAgentPolicy(Policy):
     def forward(self, sess, ob, done, policy, action=None, out_type='p'):
         # update state only when p is called
         ins = {self.ob_fw: np.expand_dims(ob, axis=1),
-               self.done_fw: np.expand_dims(done, axis=1),
+               self.done_fw: np.expand_dims(done, axis=0),
                self.policy_fw: np.expand_dims(policy, axis=1),
                self.states: self.states_fw}
         if out_type.startswith('p'):
