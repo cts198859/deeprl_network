@@ -11,16 +11,15 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from envs.cacc_env import CACCEnv
 from envs.large_grid_env import LargeGridEnv
 from envs.real_net_env import RealNetEnv
-from agents.models import IA2C
-# from agents.models import IA2C, IA2C_FP, IA2C_CU, MA2C_NC, MA2C_IC3, MA2C_DIAL
+from agents.models import IA2C, IA2C_FP, MA2C_NC, IA2C_CU, MA2C_CNET, MA2C_DIAL
 from utils import (Counter, Trainer, Tester, Evaluator,
                    check_dir, copy_file, find_file,
                    init_dir, init_log, init_test_flag)
 
 
 def parse_args():
-    default_base_dir = '/Users/ctianshu/Documents/deeprl_net/ia2c_grid_0.9'
-    default_config_dir = './config/config_ia2c_grid.ini'
+    default_base_dir = '/Users/ctianshu/Documents/deeprl_net/ma2c_dial_grid_1.0'
+    default_config_dir = './config/config_ma2c_dial_grid.ini'
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-dir', type=str, required=False,
                         default=default_base_dir, help="experiment base dir")
@@ -61,10 +60,10 @@ def init_agent(env, config, total_step, seed):
     elif env.agent == 'ma2c_nc':
         return MA2C_NC(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
-    elif env.agent == 'ma2c_ic3':
+    elif env.agent == 'ma2c_cnet':
         # this is actually CommNet
-        return MA2C_IC3(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
-                        total_step, config, seed=seed)
+        return MA2C_CNET(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
+                         total_step, config, seed=seed)
     elif env.agent == 'ma2c_cu':
         return IA2C_CU(env.n_s_ls, env.n_a_ls, env.neighbor_mask, env.distance_mask, env.coop_gamma,
                        total_step, config, seed=seed)
