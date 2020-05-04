@@ -53,7 +53,7 @@ It is recommended to use only one evaluation seed for the demo run. This will la
 The paper results are based on an out-of-date SUMO version 0.32.0. We have re-run the ATSC experiments with SUMO 1.2.0 using the master code, and provided the following training plots as reference. The paper conclusions remain the same.
 |   Grid                   		 |      Monaco                   
 :-------------------------------:|:------------------------------:
-![](./figs/grid_train.pdf) 		 | ![](./figs/net_train.pdf) 
+![](./figs/grid_train.png) 		 | ![](./figs/net_train.png) 
 
 The pytorch impelmention is also avaliable at branch [pytorch](https://github.com/cts198859/deeprl_network/tree/pytorch).
 
