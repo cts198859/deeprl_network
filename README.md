@@ -50,7 +50,12 @@ python3 main.py --base-dir [base_dir] evaluate --evaluation-seeds [seed] --demo
 It is recommended to use only one evaluation seed for the demo run. This will launch the SUMO GUI, and [`view.xml`](./envs/large_grid_data) can be applied to visualize queue length and intersectin delay in edge color and thickness. 
 
 ## Reproducibility
-The paper results are based on an out-of-date SUMO version 0.32.0. We are re-running the experiments with SUMO 1.2.0 and will update the results soon. The pytorch impelmention is avaliable at branch [pytorch](https://github.com/cts198859/deeprl_network/tree/pytorch).
+The paper results are based on an out-of-date SUMO version 0.32.0. We have re-run the ATSC experiments with SUMO 1.2.0 using the master code, and provided the following training plots as reference. The paper conclusions remain the same.
+|   Grid                   		 |      Monaco                   
+:-------------------------------:|:------------------------------:
+![](./figs/grid_train.png) 		 | ![](./figs/net_train.png) 
+
+The pytorch impelmention is also avaliable at branch [pytorch](https://github.com/cts198859/deeprl_network/tree/pytorch).
 
 ## Citation
 For more implementation details and underlying reasonings, please check our paper [Multi-agent Reinforcement Learning for Networked System Control](https://openreview.net/forum?id=Syx7A3NFvH).
