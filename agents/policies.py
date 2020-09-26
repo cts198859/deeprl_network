@@ -25,7 +25,7 @@ class Policy(nn.Module):
             n_a = self.n_a
         # only discrete control is supported for now
         self.actor_head = nn.Linear(n_h, n_a)
-        init_layer(self.actor_head, 'fc') 
+        init_layer(self.actor_head, 'fc')
 
     def _init_critic_head(self, n_h, n_n=None):
         if n_n is None:
@@ -99,8 +99,8 @@ class LstmPolicy(Policy):
         vs = self._run_critic_head(hs, nactions)
         self.policy_loss, self.value_loss, self.entropy_loss = \
             self._run_loss(actor_dist, e_coef, v_coef, vs,
-                           torch.from_numpy(acts).long(), 
-                           torch.from_numpy(Rs).float(), 
+                           torch.from_numpy(acts).long(),
+                           torch.from_numpy(Rs).float(),
                            torch.from_numpy(Advs).float())
         self.loss = self.policy_loss + self.value_loss + self.entropy_loss
         self.loss.backward()
@@ -211,7 +211,7 @@ class NCMultiAgentPolicy(Policy):
         self.loss.backward()
         if summary_writer is not None:
             self._update_tensorboard(summary_writer, global_step)
-        
+
     def forward(self, ob, done, fp, action=None, out_type='p'):
         # TxNxm
         ob = torch.from_numpy(np.expand_dims(ob, axis=0)).float()
@@ -242,7 +242,8 @@ class NCMultiAgentPolicy(Policy):
                 nx_i_ls.append(nx_i[j].narrow(0, 0, self.ns_ls_ls[i][j]))
             p_i = torch.cat(p_i_ls).unsqueeze(0)
             nx_i = torch.cat(nx_i_ls).unsqueeze(0)
-        s_i = [F.relu(self.fc_x_layers[i](torch.cat([x[i].unsqueeze(0), nx_i], dim=1))),
+        x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
+        s_i = [F.relu(self.fc_x_layers[i](torch.cat([x_i, nx_i], dim=1))),
                F.relu(self.fc_p_layers[i](p_i)),
                F.relu(self.fc_m_layers[i](m_i))]
         return torch.cat(s_i, dim=1)
@@ -340,7 +341,8 @@ class NCMultiAgentPolicy(Policy):
                 if n_n:
                     s_i = self._get_comm_s(i, n_n, x, h, p)
                 else:
-                    s_i = F.relu(self.fc_x_layers[i](x[i].unsqueeze(0)))
+                    x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
+                    s_i = F.relu(self.fc_x_layers[i](x_i))
                 h_i, c_i = h[i].unsqueeze(0) * (1-done), c[i].unsqueeze(0) * (1-done)
                 next_h_i, next_c_i = self.lstm_layers[i](s_i, (h_i, c_i))
                 next_h.append(next_h_i)
@@ -483,7 +485,8 @@ class CommNetMultiAgentPolicy(NCMultiAgentPolicy):
             for j in range(n_n):
                 nx_i_ls.append(nx_i[j].narrow(0, 0, self.ns_ls_ls[i][j]))
             nx_i = torch.cat(nx_i_ls).unsqueeze(0)
-        return F.relu(self.fc_x_layers[i](torch.cat([x[i].unsqueeze(0), nx_i], dim=1))) + \
+        x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
+        return F.relu(self.fc_x_layers[i](torch.cat([x_i, nx_i], dim=1))) + \
                self.fc_m_layers[i](m_i)
 
 

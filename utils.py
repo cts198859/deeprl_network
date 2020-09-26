@@ -14,7 +14,7 @@ def check_dir(cur_dir):
 
 
 def copy_file(src_dir, tar_dir):
-    cmd = 'cp %s %s' % (src_dir, tar_dir)
+    cmd = 'sudo cp %s %s' % (src_dir, tar_dir)
     subprocess.check_call(cmd, shell=True)
 
 
@@ -222,7 +222,7 @@ class Trainer():
                 # termination
                 if done:
                     self.env.terminate()
-                    # pytorch implementation is faster, wait SUMO for 1s 
+                    # pytorch implementation is faster, wait SUMO for 1s
                     time.sleep(1)
                     break
             rewards = np.array(self.episode_rewards)
