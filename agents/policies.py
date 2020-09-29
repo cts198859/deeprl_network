@@ -234,6 +234,7 @@ class NCMultiAgentPolicy(Policy):
         if self.identical:
             p_i = p_i.view(1, self.n_a * n_n)
             nx_i = nx_i.view(1, self.n_s * n_n)
+            x_i = x[i].unsqueeze(0)
         else:
             p_i_ls = []
             nx_i_ls = []
@@ -242,7 +243,7 @@ class NCMultiAgentPolicy(Policy):
                 nx_i_ls.append(nx_i[j].narrow(0, 0, self.ns_ls_ls[i][j]))
             p_i = torch.cat(p_i_ls).unsqueeze(0)
             nx_i = torch.cat(nx_i_ls).unsqueeze(0)
-        x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
+            x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
         s_i = [F.relu(self.fc_x_layers[i](torch.cat([x_i, nx_i], dim=1))),
                F.relu(self.fc_p_layers[i](p_i)),
                F.relu(self.fc_m_layers[i](m_i))]
@@ -341,7 +342,10 @@ class NCMultiAgentPolicy(Policy):
                 if n_n:
                     s_i = self._get_comm_s(i, n_n, x, h, p)
                 else:
-                    x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
+                    if self.identical:
+                        x_i = x[i].unsqueeze(0)
+                    else:
+                        x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
                     s_i = F.relu(self.fc_x_layers[i](x_i))
                 h_i, c_i = h[i].unsqueeze(0) * (1-done), c[i].unsqueeze(0) * (1-done)
                 next_h_i, next_c_i = self.lstm_layers[i](s_i, (h_i, c_i))
@@ -480,12 +484,13 @@ class CommNetMultiAgentPolicy(NCMultiAgentPolicy):
         nx_i = torch.index_select(x, 0, js)
         if self.identical:
             nx_i = nx_i.view(1, self.n_s * n_n)
+            x_i = x[i].unsqueeze(0)
         else:
             nx_i_ls = []
             for j in range(n_n):
                 nx_i_ls.append(nx_i[j].narrow(0, 0, self.ns_ls_ls[i][j]))
             nx_i = torch.cat(nx_i_ls).unsqueeze(0)
-        x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
+            x_i = x[i].narrow(0, 0, self.n_s_ls[i]).unsqueeze(0)
         return F.relu(self.fc_x_layers[i](torch.cat([x_i, nx_i], dim=1))) + \
                self.fc_m_layers[i](m_i)
 
